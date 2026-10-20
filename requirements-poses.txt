@@ -1,0 +1,4 @@
+# Only needed to run scripts/extract_poses.py, not to run the app.
+-r requirements.txt
+mediapipe>=0.10.14
+numpy>=1.26
