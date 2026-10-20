@@ -65,11 +65,12 @@ const CAPTION_LINGER = 1.5;       // keep a caption up this long after its sente
 const BLEND = 0.12;            // seconds to blend one sign straight into the next
 const HOLD = 0.4;              // in a pause, hold the last sign this long...
 const EASE = 0.3;              // ...then ease to or from the resting pose over this long
-// Fingerspelling is shown as still handshape pictures, which need time to read, so it is
-// never sped up: each letter stays on screen this long, and the animated signs around it
-// absorb any speed-up instead.
-const LETTER_TIME = 0.3;
-const SPELL_HOLD = 0.2;        // extra time on the last letter so the whole word can be read
+// Fingerspelling is shown as a row of still handshape pictures, which need time to read,
+// so it is never sped up: a spelled word stays on screen for SPELL_TIME plus a little per
+// letter, and the animated signs around it absorb any speed-up instead.
+const SPELL_TIME = 0.8;
+const SPELL_TIME_PER_LETTER = 0.05;
+const spellTime = letters => SPELL_TIME + SPELL_TIME_PER_LETTER * letters;
 const UNSIGNED_WORD_TIME = 0.45; // a word with no sign animation: only highlighted in the sentence
 
 const HAND_BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
@@ -185,12 +186,12 @@ function buildTimeline(segments, poses) {
       } else if (sign.media?.type === 'spell' || (sign.media?.type === 'video' && sign.kind === 'sign' && /^[a-z]+$/i.test(sign.gloss))) {
         // No sign animation for this word: fingerspell it, as ASL does for words without a sign.
         const letters = sign.media.letters || sign.gloss;
-        own.push({ kind: 'spell', label: letters.toUpperCase(), natural: LETTER_TIME * letters.length + SPELL_HOLD, word, char: sign.start_char });
+        own.push({ kind: 'spell', label: letters.toUpperCase(), natural: spellTime(letters.length), word, char: sign.start_char });
       } else if (sign.kind === 'fingerspell' && last?.kind === 'spell' && last.word === word) {
         last.label += sign.gloss.toUpperCase();   // letters of the same name
-        last.natural += LETTER_TIME;
+        last.natural = spellTime(last.label.length);
       } else if (sign.kind === 'fingerspell') {
-        own.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + SPELL_HOLD, word, char: sign.start_char });
+        own.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: spellTime(1), word, char: sign.start_char });
       } else {
         own.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: UNSIGNED_WORD_TIME, word, char: sign.start_char });
       }
@@ -352,17 +353,21 @@ function drawCard(text) {
   ctx.fillText(text, canvas.width / 2, canvas.height * 0.82);
 }
 
-// Fingerspelling: show each letter's handshape in turn, with the word so far underneath.
-function drawSpelling(clip, progress) {
+// Fingerspelling: the word's letter handshapes side by side in one row, with the word
+// underneath, so the whole word can be read at a glance.
+function drawSpelling(clip) {
   const letters = clip.label.toLowerCase();
-  const i = Math.min(letters.length - 1, Math.floor(progress * letters.length));
-  const img = letterImages[letters[i]];
-  const size = canvas.height * 0.42;
-  const x = (canvas.width - size) / 2, y = canvas.height * 0.18;
-  ctx.fillStyle = 'rgba(255,255,255,.92)';
-  ctx.fillRect(x - 20, y - 20, size + 40, size + 40);
-  if (img?.complete && img.naturalWidth) ctx.drawImage(img, x, y, size, size);
-  drawCard(clip.label.slice(0, i + 1));
+  const gap = canvas.width * 0.01;
+  const size = Math.min(canvas.height * 0.32, (canvas.width * 0.92 - gap * (letters.length - 1)) / letters.length);
+  const rowWidth = size * letters.length + gap * (letters.length - 1);
+  const x0 = (canvas.width - rowWidth) / 2, y = canvas.height * 0.3;
+  ctx.fillStyle = 'rgba(255,255,255,.94)';
+  ctx.fillRect(x0 - 16, y - 16, rowWidth + 32, size + 32);
+  [...letters].forEach((ch, i) => {
+    const img = letterImages[ch];
+    if (img?.complete && img.naturalWidth) ctx.drawImage(img, x0 + i * (size + gap), y, size, size);
+  });
+  drawCard(clip.label);
 }
 
 // The sentence being spoken, shown like a closed caption until the next one starts.
@@ -402,7 +407,7 @@ function tick() {
   const t = endedAt === null ? video.currentTime : video.duration + (performance.now() - endedAt) / 1000;
   const { frame, clip } = stateAt(t);
   draw(frame);
-  if (clip?.kind === 'spell') drawSpelling(clip, (t - clip.start) / clip.length);
+  if (clip?.kind === 'spell') drawSpelling(clip);
   const pace = clip?.kind === 'spell' ? 'fingerspelling' : `${clip?.speed.toFixed(1)}×`;
   el('speed').textContent = clip ? `${clip.mode === 'aligned' ? 'aligned to speech' : 'sentence mode'} · ${pace}` : '';
   const lag = clip ? clip.behind : 0;
