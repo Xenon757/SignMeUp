@@ -14,6 +14,13 @@ const Signer = (() => {
   const COLORS = { body: '#334a6b', forearm: '#5b7bab', skin: '#e9c9a8', line: '#1f2937', torso: '#d7dee9',
                    palm: '#f3d2b0', backOfHand: '#c8895a', handOutline: '#6b3f22' };
 
+  // A colour darkened by `amount` (0 = unchanged, 1 = black), for shading parts set back.
+  function shade(hex, amount) {
+    const n = parseInt(hex.slice(1), 16);
+    const f = c => Math.round(c * (1 - amount));
+    return `rgb(${f(n >> 16)}, ${f((n >> 8) & 255)}, ${f(n & 255)})`;
+  }
+
   function lerp(a, b, k) {
     if (!a) return b;
     if (!b) return a;
@@ -63,7 +70,9 @@ const Signer = (() => {
     // A hand as a solid shape: the palm and each finger drawn back to front by depth, so a
     // finger in front of the palm covers it. The palm is light when it faces the viewer and
     // darker when the back of the hand does (palm orientation distinguishes many signs).
-    const drawHand = (hand, isRight) => {
+    // `dim` darkens the whole hand (the farther hand gets less light). With `shadow`,
+    // the hand first casts a soft shadow onto whatever is behind it.
+    const drawHand = (hand, isRight, { dim = 0, shadow = 0 } = {}) => {
       if (!hand) return;
       const pts = hand.map(toCanvas);
       const depth = idx => idx.reduce((t, i) => t + (hand[i][2] ?? 0), 0) / idx.length;
@@ -80,17 +89,41 @@ const Signer = (() => {
       const parts = [{ idx: PALM, palm: true }, ...FINGERS.map(idx => ({ idx }))];
       parts.forEach(part => { part.z = depth(part.idx); });
       parts.sort((a, b) => b.z - a.z);  // farthest first
-      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-      for (const part of parts) {
+      // Within the hand, parts farther back are a little darker (up to 18%).
+      const zs = parts.map(p => p.z);
+      const zNear = Math.min(...zs), zFar = Math.max(...zs);
+      const back = part => (zFar - zNear > 1e-3 ? (part.z - zNear) / (zFar - zNear) : 0);
+
+      const trace = part => {
         ctx.beginPath();
         part.idx.forEach((i, k) => (k ? ctx.lineTo(...pts[i]) : ctx.moveTo(...pts[i])));
+        if (part.palm) ctx.closePath();
+      };
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+      if (shadow) {
+        // The hand's silhouette, drawn only for its blurred, offset shadow.
+        ctx.save();
+        ctx.shadowColor = `rgba(40, 22, 10, ${shadow})`;
+        ctx.shadowBlur = 14 * s; ctx.shadowOffsetX = 5 * s; ctx.shadowOffsetY = 8 * s;
+        ctx.fillStyle = ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
+        ctx.globalCompositeOperation = 'source-over';
+        for (const part of parts) {
+          trace(part);
+          if (part.palm) ctx.fill(); else { ctx.lineWidth = width + 2 * outline; ctx.stroke(); }
+        }
+        ctx.restore();
+      }
+
+      for (const part of parts) {
+        const colour = shade(fill, dim + 0.18 * back(part));
+        trace(part);
         if (part.palm) {
-          ctx.closePath();
-          ctx.fillStyle = fill; ctx.fill();
+          ctx.fillStyle = colour; ctx.fill();
           ctx.lineWidth = outline; ctx.strokeStyle = COLORS.handOutline; ctx.stroke();
         } else {
           ctx.lineWidth = width + 2 * outline; ctx.strokeStyle = COLORS.handOutline; ctx.stroke();
-          ctx.lineWidth = width; ctx.strokeStyle = fill; ctx.stroke();
+          ctx.lineWidth = width; ctx.strokeStyle = colour; ctx.stroke();
         }
       }
     };
@@ -125,15 +158,18 @@ const Signer = (() => {
       { sh: lSh, el: lEl, wr: lWr, hand: frame.leftHand, isRight: false, z: lWr[2] ?? 1 },
       { sh: rSh, el: rEl, wr: rWr, hand: frame.rightHand, isRight: true, z: rWr[2] ?? 0 },
     ].sort((a, b) => b.z - a.z);
-    for (const side of sides) {
+    sides.forEach((side, k) => {
       // The arm ends at the tracked hand's wrist when there is one, so arm and hand stay joined.
       // The forearm is a lighter shade so a bent arm reads as two parts, even when the
       // forearm folds back over the upper arm (signs made at the face).
       const wrist = side.hand ? side.hand[0] : side.wr;
+      const nearer = k === sides.length - 1;
       line(side.sh, side.el, 22 * s, COLORS.body);
       line(side.el, wrist, 18 * s, COLORS.forearm);
-      drawHand(side.hand, side.isRight);
-    }
+      // Depth cues: both hands cast a shadow on what's behind them, the nearer one more
+      // strongly, and the farther hand is slightly darker, as if it gets less light.
+      drawHand(side.hand, side.isRight, nearer ? { shadow: 0.45 } : { dim: 0.12, shadow: 0.25 });
+    });
   }
 
   return { lerpFrame, frameAt, drawFigure, COLORS };
