@@ -1,0 +1,36 @@
+# Fly.io deployment. See README "Deploying" for the one-time setup.
+# App names are global on Fly: if "signmeup" is taken, pick another and change it here.
+app = "signmeup"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  SIGNMEUP_WHISPER_MODEL = "tiny"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Scale to zero: the machine stops when nobody is using the site (no cost while stopped)
+  # and starts on the next visit, which then takes about 20-40 s.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "90s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+# Sign animations and Signbank lookups are cached here, so they survive restarts.
+[[mounts]]
+  source = "signmeup_data"
+  destination = "/data"
+
+# Whisper, Stanza (PyTorch) and MediaPipe together need a few GB of memory.
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "4gb"

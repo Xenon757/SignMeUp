@@ -1,0 +1,13 @@
+.git
+venv
+.venv
+**/__pycache__
+.pytest_cache
+node_modules
+frontend/node_modules
+frontend/dist
+tests
+uploads
+*.m4a
+*.mp4
+.DS_Store

@@ -148,6 +148,10 @@ def gloss_string(signs: Iterable[Sign]) -> str:
     return " ".join(sign.gloss for sign in signs)
 
 
+# Stanza processors the translation needs (also downloaded ahead of time by scripts/download_models.py).
+STANZA_PROCESSORS = "tokenize,pos,lemma,depparse"
+
+
 class StanzaGlosser:
     """Parses English with Stanza and converts it to ASL signs.
 
@@ -165,9 +169,12 @@ class StanzaGlosser:
 
             self._nlp = stanza.Pipeline(
                 lang="en",
-                processors="tokenize,pos,lemma,depparse",
+                processors=STANZA_PROCESSORS,
                 use_gpu=self._use_gpu,
                 verbose=False,
+                # Use models already on disk (baked into the deployed image) instead of
+                # checking for updates online at every start; downloads only if missing.
+                download_method=stanza.DownloadMethod.REUSE_RESOURCES,
             )
         return self._nlp
 
