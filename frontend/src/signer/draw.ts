@@ -9,7 +9,7 @@ const FACE_OUTLINES: [string, number][] = [['oval', 36], ['lips', 20], ['leftEye
 
 // The figure wears solid dark clothing, like ASL interpreters do, so the hands stand out.
 export const COLORS = {
-  shirt: '#2b3445', sleeve: '#2b3445', forearm: '#3d4a61', skin: '#e9c9a8', faceEdge: '#d4ad86',
+  shirt: '#2b3445', sleeve: '#2b3445', forearm: '#3d4a61', skin: '#e9c9a8', faceEdge: '#d4ad86', hair: '#3b2f29',
   line: '#1f2937', palm: '#f3d2b0', backOfHand: '#c8895a', handOutline: '#6b3f22', lips: '#9b4a4a',
 };
 
@@ -99,20 +99,50 @@ export function drawFigure(ctx: CanvasRenderingContext2D, frame: Frame | null) {
   };
 
   const [nose, lSh, rSh, lEl, rEl, lWr, rWr, lHip, rHip] = frame.pose;
-  const shoulderWidth = Math.hypot(lSh[0] - rSh[0], lSh[1] - rSh[1]) * unit;
-  const neckBase: Point = [(lSh[0] + rSh[0]) / 2, (lSh[1] + rSh[1]) / 2];
+  const shoulderSpan = Math.hypot(lSh[0] - rSh[0], lSh[1] - rSh[1]); // in body units
+  const mid: Point = [(lSh[0] + rSh[0]) / 2, (lSh[1] + rSh[1]) / 2];
+  // Unit vectors along the shoulders (signer's left to right) and up the body.
+  const across: Point = [(rSh[0] - lSh[0]) / shoulderSpan, (rSh[1] - lSh[1]) / shoulderSpan];
+  // Perpendicular to the shoulders, pointing toward the head.
+  const perp: Point = [across[1], -across[0]];
+  const toHead = (nose[0] - mid[0]) * perp[0] + (nose[1] - mid[1]) * perp[1];
+  const up: Point = toHead >= 0 ? perp : [-perp[0], -perp[1]];
+  const at = (a: number, b: number): Point => [mid[0] + across[0] * a + up[0] * b, mid[1] + across[1] * a + up[1] * b];
 
-  // Neck, then the shirt over its base (rounded at the shoulders), then the head over its top.
-  line(neckBase, nose, shoulderWidth * 0.36, COLORS.skin);
-  ctx.lineJoin = 'round';
-  path([lSh, rSh, rHip, lHip], true);
-  ctx.fillStyle = COLORS.shirt; ctx.fill();
-  ctx.lineWidth = 24 * s; ctx.strokeStyle = COLORS.shirt; ctx.stroke();
-
+  const parts: Record<string, Point[]> = {};
   if (frame.face) {
-    const parts: Record<string, Point[]> = {};
     let i = 0;
     for (const [name, n] of FACE_OUTLINES) { parts[name] = frame.face.slice(i, i + n); i += n; }
+  }
+
+  // The tracked "shoulders" are the shoulder joints, and the face outline is just the face, so
+  // drawn as is the neck looks far too long. Like a real body, the shirt slopes up from the
+  // shoulders to a collar, the neck is narrower and mostly hidden by it, and the head is
+  // larger than the face (skull and hair behind it).
+  const collarHalf = 0.17 * shoulderSpan;
+  const collarRise = 0.16 * shoulderSpan;
+  const chin = parts.oval ? parts.oval.reduce((lo, p) => (p[1] > lo[1] ? p : lo)) : nose;
+  line(at(0, collarRise * 0.5), chin, 0.24 * shoulderSpan * unit, COLORS.skin);
+
+  ctx.lineJoin = 'round';
+  path([lSh, at(-collarHalf, collarRise), at(collarHalf, collarRise), rSh, rHip, lHip], true);
+  ctx.fillStyle = COLORS.shirt; ctx.fill();
+  ctx.lineWidth = 24 * s; ctx.strokeStyle = COLORS.shirt; ctx.stroke();
+  // A shallow round neckline, dipping slightly into the shirt.
+  ctx.beginPath();
+  const [nx, ny] = toCanvas(at(0, collarRise));
+  ctx.ellipse(nx, ny, collarHalf * 0.72 * unit, collarRise * 0.42 * unit, Math.atan2(across[1], across[0]), 0, Math.PI * 2);
+  ctx.fillStyle = COLORS.skin; ctx.fill();
+
+  if (frame.face) {
+    // Head: an ellipse a little larger than the face, sitting higher (the skull), as hair.
+    const xs = parts.oval.map(p => p[0]), ys = parts.oval.map(p => p[1]);
+    const fw = Math.max(...xs) - Math.min(...xs), fh = Math.max(...ys) - Math.min(...ys);
+    const [hx, hy] = toCanvas([(Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2 - fh * 0.14]);
+    ctx.beginPath();
+    ctx.ellipse(hx, hy, fw * 0.62 * unit, fh * 0.6 * unit, Math.atan2(across[1], across[0]), 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.hair; ctx.fill();
+
     ctx.fillStyle = COLORS.skin; path(parts.oval, true); ctx.fill();
     ctx.lineWidth = 3 * s; ctx.strokeStyle = COLORS.faceEdge; ctx.stroke();
     ctx.fillStyle = COLORS.line;
