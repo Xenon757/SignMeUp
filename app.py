@@ -11,6 +11,7 @@ from pathlib import Path
 import flask
 from werkzeug.utils import secure_filename
 
+from asl_util.demo import DemoTranscriber, demo_info
 from asl_util.jobs import JobFailed, JobRunner
 from asl_util.pipeline import translate_video
 from asl_util.poses import PoseStore
@@ -68,6 +69,7 @@ def create_app(
         return path, None
 
     @app.get("/")
+    @app.get("/demo")
     @app.get("/compare")
     def page():
         # The React app handles both pages; it picks one from the URL.
@@ -127,6 +129,20 @@ def create_app(
 
         job_id = jobs.submit(process, cleanup=lambda: path.unlink(missing_ok=True))
         return flask.jsonify(jobs.status(job_id)), 202
+
+    demo_result: dict = {}  # the demo's result, kept after the first run
+
+    @app.post("/api/demo")
+    def start_demo():
+        """Sign the built-in demo (Me at the zoo). Same job flow as an upload; instant once done."""
+
+        def process(report):
+            if not demo_result:
+                demo_result.update(translate_video(None, DemoTranscriber(), glosser, media, progress=report))
+            return demo_result
+
+        status = jobs.status(jobs.submit(process))
+        return flask.jsonify({**status, "demo": demo_info()}), 202
 
     @app.get("/api/jobs/<job_id>")
     def job_status(job_id: str):
