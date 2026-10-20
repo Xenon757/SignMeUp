@@ -28,6 +28,10 @@ from typing import Callable, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
+HAND_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
+    "hand_landmarker/float16/latest/hand_landmarker.task"
+)
 MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/holistic_landmarker/"
     "holistic_landmarker/float16/latest/holistic_landmarker.task"
@@ -38,6 +42,7 @@ USER_AGENT = "SignMeUp (+https://github.com/Xenon757/SignMeUp)"
 # In a stored frame they are at positions 0 nose, 1-2 shoulders, 3-4 elbows, 5-6 wrists, 7-8 hips.
 POSE_POINTS = [0, 11, 12, 13, 14, 15, 16, 23, 24]
 LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_WRIST, RIGHT_WRIST, LEFT_HIP, RIGHT_HIP = 1, 2, 5, 6, 7, 8
+LEFT_ELBOW, RIGHT_ELBOW = 3, 4
 
 # Face mesh outlines that carry ASL grammar: eyebrows, eyes, mouth, plus the face edge.
 # The page reads them back in this order, so keep it in sync with templates/pose_prototype.html.
@@ -70,7 +75,7 @@ HOLD_MOTION = 0.012
 MIN_FRAMES = 6  # never trim a sign shorter than this
 
 # Bump when the stored animation format or trimming changes, so cached files are remade.
-CLIP_VERSION = 4
+CLIP_VERSION = 5
 
 # Tracking wobbles a little from frame to frame. Each point is smoothed over time with a
 # Gaussian of this spread (in frames). Measured on Signbank clips, sigma 1 cuts finger
@@ -173,7 +178,7 @@ def fill_hand_gaps(frames: List[Frame], start: int, end: int) -> int:
                 near = before if before is not None else after
                 hand = frames[near][key]
                 if frames[i]["pose"] and frames[near]["pose"]:
-                    (x1, y1), (x0, y0) = frames[i]["pose"][wrist], frames[near]["pose"][wrist]
+                    (x1, y1), (x0, y0) = frames[i]["pose"][wrist][:2], frames[near]["pose"][wrist][:2]
                     hand = _shift(hand, x1 - x0, y1 - y0)
             frames[i][key] = hand
             filled += 1
@@ -193,7 +198,7 @@ def to_body_space(frames: List[Frame], width: int, height: int, digits: int = 3)
     first = next((f["pose"] for f in frames if f["pose"]), None)
     if first is None:
         return frames
-    (lx, ly), (rx, ry) = first[LEFT_SHOULDER], first[RIGHT_SHOULDER]
+    (lx, ly), (rx, ry) = first[LEFT_SHOULDER][:2], first[RIGHT_SHOULDER][:2]
     lx, ly, rx, ry = lx * width, ly * height, rx * width, ry * height
     cx, cy = (lx + rx) / 2, (ly + ry) / 2
     unit = ((lx - rx) ** 2 + (ly - ry) ** 2) ** 0.5 or 1.0
@@ -282,8 +287,94 @@ def build_clip(gloss: str, frames: List[Frame], fps: float, width: int, height: 
     }
 
 
+# When hands overlap, the holistic model sometimes reports the same hand as both the
+# left and the right hand. Hands closer than this (mean point distance, in shoulder
+# widths) are treated as one.
+DUPLICATE_HAND = 0.1
+ELBOW_OF_HAND = {"leftHand": LEFT_ELBOW, "rightHand": RIGHT_ELBOW}
+
+
+def _px(point: Point, width: int, height: int) -> Tuple[float, float]:
+    return point[0] * width, point[1] * height
+
+
+def _dist(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+
+
+def _shoulder_width(pose: List[Point], width: int, height: int) -> float:
+    return _dist(_px(pose[LEFT_SHOULDER], width, height), _px(pose[RIGHT_SHOULDER], width, height)) or 1.0
+
+
+def _hand_gap(a: List[Point], b: List[Point], width: int, height: int) -> float:
+    """Mean distance between two hands' points, in pixels."""
+    return sum(_dist(_px(p, width, height), _px(q, width, height)) for p, q in zip(a, b)) / len(a)
+
+
+def remove_duplicate_hands(frames: List[Frame], width: int, height: int) -> int:
+    """Where both hands are the same tracked hand, keep it only on its real side.
+
+    The body model tracks each wrist separately, so the hand belongs to the side
+    whose wrist it is nearest. The other side is cleared, to be re-tracked or
+    filled in. Returns how many frames were fixed.
+    """
+    fixed = 0
+    for f in frames:
+        left, right, pose = f["leftHand"], f["rightHand"], f["pose"]
+        if not (left and right and pose):
+            continue
+        if _hand_gap(left, right, width, height) >= DUPLICATE_HAND * _shoulder_width(pose, width, height):
+            continue
+        wrist = _px(left[0], width, height)
+        to_left = _dist(wrist, _px(pose[LEFT_WRIST], width, height))
+        to_right = _dist(wrist, _px(pose[RIGHT_WRIST], width, height))
+        f["rightHand" if to_left <= to_right else "leftHand"] = None
+        fixed += 1
+    return fixed
+
+
+def hand_crop(pose: List[Point], hand: str, width: int, height: int) -> Tuple[float, float, float]:
+    """A square around where a hand should be, from its wrist and forearm: (x0, y0, size) in pixels.
+
+    The hand extends past the wrist along the forearm, so the square is centred a
+    little beyond the wrist and sized to fit the hand however it is turned.
+    """
+    wrist_i = LEFT_WRIST if hand == "leftHand" else RIGHT_WRIST
+    wx, wy = _px(pose[wrist_i], width, height)
+    ex, ey = _px(pose[ELBOW_OF_HAND[hand]], width, height)
+    forearm = _dist((wx, wy), (ex, ey)) or 0.6 * _shoulder_width(pose, width, height)
+    cx, cy = wx + 0.45 * (wx - ex), wy + 0.45 * (wy - ey)
+    size = max(48.0, 1.6 * forearm)
+    return cx - size / 2, cy - size / 2, size
+
+
+def pick_crop_hand(
+    candidates: List[List[Point]], pose: List[Point], hand: str, other: Optional[List[Point]], width: int, height: int
+) -> Optional[List[Point]]:
+    """Of the hands found in a crop, the one at this side's wrist that isn't the other hand."""
+    wrist_i = LEFT_WRIST if hand == "leftHand" else RIGHT_WRIST
+    wrist = _px(pose[wrist_i], width, height)
+    forearm = _dist(wrist, _px(pose[ELBOW_OF_HAND[hand]], width, height)) or _shoulder_width(pose, width, height)
+    best, best_d = None, None
+    for c in candidates:
+        d = _dist(_px(c[0], width, height), wrist)
+        if d > 0.6 * forearm:
+            continue
+        if other and _hand_gap(c, other, width, height) < DUPLICATE_HAND * _shoulder_width(pose, width, height):
+            continue
+        if best_d is None or d < best_d:
+            best, best_d = c, d
+    return best
+
+
 def track_video(video: Path, model_path: Path) -> Tuple[List[Frame], float, int, int]:
-    """Run MediaPipe's holistic model over every frame of a video."""
+    """Run MediaPipe's holistic model over every frame of a video.
+
+    Then, where a hand is missing (often because it overlaps the other hand, or was
+    reported as the other hand), MediaPipe's hand model is run on a zoomed-in crop
+    around that wrist. The hand model is expected next to the holistic one
+    (hand_landmarker.task); without it this step is skipped.
+    """
     import av  # heavy imports, deferred until a pose is actually needed
     import mediapipe as mp
     import numpy as np
@@ -301,6 +392,7 @@ def track_video(video: Path, model_path: Path) -> Tuple[List[Frame], float, int,
         return [[p.x, p.y, p.z] if depth else [p.x, p.y] for p in chosen]
 
     frames: List[Frame] = []
+    images = []
     # A new landmarker per video: VIDEO mode needs timestamps that only increase.
     with vision.HolisticLandmarker.create_from_options(options) as landmarker, av.open(str(video)) as container:
         stream = container.streams.video[0]
@@ -308,9 +400,11 @@ def track_video(video: Path, model_path: Path) -> Tuple[List[Frame], float, int,
         for n, frame in enumerate(container.decode(stream)):
             rgb = np.ascontiguousarray(frame.to_ndarray(format="rgb24"))
             result = landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), int(n * 1000 / fps))
+            images.append(rgb)
             frames.append(
                 {
-                    "pose": points(result.pose_landmarks, POSE_POINTS),
+                    # Body points keep depth too, to tell which hand is nearer the viewer.
+                    "pose": points(result.pose_landmarks, POSE_POINTS, depth=True),
                     # MediaPipe's "left"/"right" are from the signer's point of view.
                     "leftHand": points(result.left_hand_landmarks, depth=True),
                     "rightHand": points(result.right_hand_landmarks, depth=True),
@@ -318,7 +412,46 @@ def track_video(video: Path, model_path: Path) -> Tuple[List[Frame], float, int,
                 }
             )
         width, height = stream.width, stream.height
+
+    remove_duplicate_hands(frames, width, height)
+    hand_model = Path(model_path).with_name("hand_landmarker.task")
+    if hand_model.exists():
+        _retrack_missing_hands(frames, images, width, height, hand_model)
     return frames, fps, width, height
+
+
+def _retrack_missing_hands(frames: List[Frame], images: list, width: int, height: int, hand_model: Path) -> None:
+    """Run the hand model on 4x zoomed crops where the holistic model missed a hand."""
+    import cv2
+    import mediapipe as mp
+    import numpy as np
+
+    vision = mp.tasks.vision
+    options = vision.HandLandmarkerOptions(
+        base_options=mp.tasks.BaseOptions(model_asset_path=str(hand_model)),
+        running_mode=vision.RunningMode.IMAGE,
+        num_hands=2,
+        min_hand_detection_confidence=0.3,
+        min_hand_presence_confidence=0.3,
+    )
+    crop_px = 256
+    with vision.HandLandmarker.create_from_options(options) as landmarker:
+        for f, img in zip(frames, images):
+            if not f["pose"]:
+                continue
+            for hand, other in (("leftHand", "rightHand"), ("rightHand", "leftHand")):
+                if f[hand]:
+                    continue
+                x0, y0, size = hand_crop(f["pose"], hand, width, height)
+                k = crop_px / size
+                matrix = np.array([[k, 0, -x0 * k], [0, k, -y0 * k]])
+                crop = np.ascontiguousarray(cv2.warpAffine(img, matrix, (crop_px, crop_px), flags=cv2.INTER_CUBIC))
+                result = landmarker.detect(mp.Image(image_format=mp.ImageFormat.SRGB, data=crop))
+                candidates = [
+                    [[(x0 + p.x * size) / width, (y0 + p.y * size) / height, p.z * size / width] for p in lms]
+                    for lms in result.hand_landmarks
+                ]
+                f[hand] = pick_crop_hand(candidates, f["pose"], hand, f[other], width, height)
 
 
 def download(url: str, dest: Path, timeout: float = 30.0) -> None:
@@ -431,3 +564,7 @@ class PoseStore:
             if not self._model_path.exists():
                 log.info("Downloading the MediaPipe holistic model to %s", self._model_path)
                 self._download(MODEL_URL, self._model_path)
+            hand_model = self._model_path.with_name("hand_landmarker.task")
+            if not hand_model.exists():
+                log.info("Downloading the MediaPipe hand model to %s", hand_model)
+                self._download(HAND_MODEL_URL, hand_model)

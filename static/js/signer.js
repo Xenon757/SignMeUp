@@ -117,21 +117,23 @@ const Signer = (() => {
       ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = COLORS.skin; ctx.fill();
     }
 
-    // Arms end at the tracked hand's wrist when there is one, so arm and hand stay joined.
-    const lHandWrist = frame.leftHand ? frame.leftHand[0] : lWr;
-    const rHandWrist = frame.rightHand ? frame.rightHand[0] : rWr;
-    // The forearm is a lighter shade so a bent arm reads as two parts, even when the
-    // forearm folds back over the upper arm (signs made at the face).
-    for (const [sh, elb, wr] of [[lSh, lEl, lHandWrist], [rSh, rEl, rHandWrist]]) {
-      line(sh, elb, 22 * s, COLORS.body);
-      line(elb, wr, 18 * s, COLORS.forearm);
-    }
+    // Each arm and its hand are drawn together, the farther side first, so where the hands
+    // cross or touch the nearer one is on top. Depth comes from the body tracker's wrists
+    // (smaller z = nearer); without it, the signer's right hand goes on top.
     line(lSh, rSh, 22 * s, COLORS.body);
-
-    // Hand depth is measured from each hand's own wrist, so which hand is in front where they
-    // cross isn't known; the signer's right hand (usually the dominant one) is drawn on top.
-    drawHand(frame.leftHand, false);
-    drawHand(frame.rightHand, true);
+    const sides = [
+      { sh: lSh, el: lEl, wr: lWr, hand: frame.leftHand, isRight: false, z: lWr[2] ?? 1 },
+      { sh: rSh, el: rEl, wr: rWr, hand: frame.rightHand, isRight: true, z: rWr[2] ?? 0 },
+    ].sort((a, b) => b.z - a.z);
+    for (const side of sides) {
+      // The arm ends at the tracked hand's wrist when there is one, so arm and hand stay joined.
+      // The forearm is a lighter shade so a bent arm reads as two parts, even when the
+      // forearm folds back over the upper arm (signs made at the face).
+      const wrist = side.hand ? side.hand[0] : side.wr;
+      line(side.sh, side.el, 22 * s, COLORS.body);
+      line(side.el, wrist, 18 * s, COLORS.forearm);
+      drawHand(side.hand, side.isRight);
+    }
   }
 
   return { lerpFrame, frameAt, drawFigure, COLORS };

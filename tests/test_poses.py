@@ -153,7 +153,8 @@ def test_store_downloads_model_once(tmp_path):
     poses = store(tmp_path, tools)
     poses.ensure(1, "A", "https://example/a.mp4")
     poses.ensure(2, "B", "https://example/b.mp4")
-    assert sum(1 for url in tools.downloads if url.endswith(".task")) == 1
+    models = [url for url in tools.downloads if url.endswith(".task")]
+    assert len(models) == 2 and len(set(models)) == 2  # holistic and hand model, each once
 
 
 def test_store_remembers_signs_that_could_not_be_tracked(tmp_path):
@@ -216,3 +217,39 @@ def test_hand_depth_is_kept_in_body_space():
     f = frame(right_hand=[[0.4, 0.5, -0.02]] * 21)
     body = to_body_space([f], width=400, height=200)[0]
     assert body["rightHand"][0][2] == round(-0.02 * 400 / 80, 3)  # same unit as x: shoulder widths
+
+
+from asl_util.poses import hand_crop, pick_crop_hand, remove_duplicate_hands  # noqa: E402
+
+# 400x200 video; frame()'s left wrist is at (0.6, y), right wrist at (0.4, y), shoulders 80 px apart.
+
+
+def test_same_hand_on_both_sides_is_kept_only_on_its_real_side():
+    near_right_wrist = hand(0.41, 0.5)
+    frames = [frame(wrist_y=0.5, left_hand=near_right_wrist, right_hand=near_right_wrist)]
+    assert remove_duplicate_hands(frames, 400, 200) == 1
+    assert frames[0]["rightHand"] == near_right_wrist
+    assert frames[0]["leftHand"] is None
+
+
+def test_two_different_hands_are_kept():
+    frames = [frame(wrist_y=0.5, left_hand=hand(0.6, 0.5), right_hand=hand(0.4, 0.5))]
+    assert remove_duplicate_hands(frames, 400, 200) == 0
+    assert frames[0]["leftHand"] and frames[0]["rightHand"]
+
+
+def test_hand_crop_is_centred_past_the_wrist_along_the_forearm():
+    pose = frame(wrist_y=0.5)["pose"]       # right elbow (0.35, 0.6) -> right wrist (0.4, 0.5)
+    x0, y0, size = hand_crop(pose, "rightHand", 400, 200)
+    cx, cy = x0 + size / 2, y0 + size / 2
+    assert cx > 0.4 * 400 and cy < 0.5 * 200  # beyond the wrist, away from the elbow
+    assert size >= 48
+
+
+def test_crop_hand_must_be_at_this_wrist_and_not_the_other_hand():
+    pose = frame(wrist_y=0.5)["pose"]
+    at_right_wrist, far_away = hand(0.4, 0.5), hand(0.1, 0.1)
+    assert pick_crop_hand([far_away, at_right_wrist], pose, "rightHand", None, 400, 200) == at_right_wrist
+    assert pick_crop_hand([far_away], pose, "rightHand", None, 400, 200) is None
+    # The only hand found is the one already used for the other side: not accepted.
+    assert pick_crop_hand([at_right_wrist], pose, "rightHand", at_right_wrist, 400, 200) is None
