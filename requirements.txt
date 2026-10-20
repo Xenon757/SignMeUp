@@ -3,4 +3,5 @@ flask>=3.0
 faster-whisper>=1.1      # speech-to-text (pulls in ctranslate2 and PyAV, which bundles FFmpeg)
 stanza>=1.9              # English parsing (pulls in PyTorch)
 num2words>=0.5.13
+mediapipe>=1.1          # tracks body, hands and face in sign videos for the 2D animations
 av>=11,<19              # PyAV 19 removed an option faster-whisper still passes to av.open()
