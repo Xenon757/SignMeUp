@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from pathlib import Path
 import bisect
-from typing import List, Optional, Protocol, Sequence, Tuple
+from typing import Callable, List, Optional, Protocol, Sequence, Tuple
 
 from .transcribe import Segment, SpokenWord
 from .translate import Sign, gloss_string
@@ -20,7 +20,7 @@ class Glosser(Protocol):
 
 
 class MediaFinder(Protocol):
-    def for_signs(self, signs: List[Sign]) -> List[Optional[dict]]: ...
+    def for_signs(self, signs: List[Sign], on_progress: Optional[Callable[[int, int], None]] = None) -> List[Optional[dict]]: ...
 
 
 def word_positions(text: str, words: Sequence[SpokenWord]) -> List[Tuple[int, float]]:
@@ -76,7 +76,11 @@ def split_sentences(seg: Segment) -> List[Segment]:
 
 
 def translate_video(
-    media_path: str | Path, transcriber: Transcriber, glosser: Glosser, media: Optional[MediaFinder] = None
+    media_path: str | Path,
+    transcriber: Transcriber,
+    glosser: Glosser,
+    media: Optional[MediaFinder] = None,
+    progress: Optional[Callable[..., None]] = None,
 ) -> dict:
     """Transcribe a video and convert each spoken sentence into ASL signs.
 
@@ -91,11 +95,18 @@ def translate_video(
 
     `media` is what to show for a sign (a video or image), or None if there is
     nothing to show; it is only added when a media finder is passed in.
+
+    `progress(stage, done=None, total=None)` is called as work moves through the
+    stages "transcribing", "translating" (per sentence) and "animating" (per word).
     """
+    report = progress or (lambda *args, **kwargs: None)
+    report("transcribing")
     segments = transcriber.transcribe(media_path)
     out_segments = []
     all_signs: List[Sign] = []
-    for seg in (sentence for segment in segments for sentence in split_sentences(segment)):
+    sentences = [sentence for segment in segments for sentence in split_sentences(segment)]
+    for i, seg in enumerate(sentences):
+        report("translating", i, len(sentences))
         signs = glosser.to_signs(seg.text)
         all_signs.extend(signs)
         positions = word_positions(seg.text, seg.words)
@@ -114,7 +125,8 @@ def translate_video(
         )
     if media is not None:
         # One lookup for the whole video so repeated words are fetched once.
-        found = iter(media.for_signs(all_signs))
+        report("animating", 0, None)
+        found = iter(media.for_signs(all_signs, on_progress=lambda done, total: report("animating", done, total)))
         for seg in out_segments:
             for sign in seg["signs"]:
                 sign["media"] = next(found)

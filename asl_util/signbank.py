@@ -13,7 +13,7 @@ import logging
 import re
 import threading
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -230,11 +230,21 @@ class SignMedia:
             return None
         return self._video_for(sign.gloss)
 
-    def for_signs(self, signs: Sequence[Sign]) -> List[Optional[dict]]:
-        """Media for each sign. Words not seen before are looked up a few at a time."""
-        words = {s.gloss for s in signs if s.kind != "fingerspell"}
+    def for_signs(
+        self, signs: Sequence[Sign], on_progress: Optional[Callable[[int, int], None]] = None
+    ) -> List[Optional[dict]]:
+        """Media for each sign. Words not seen before are looked up a few at a time.
+
+        `on_progress(done, total)` is called as each distinct word is finished.
+        """
+        words = sorted({s.gloss for s in signs if s.kind != "fingerspell"})
+        videos: Dict[str, Optional[dict]] = {}
         with ThreadPoolExecutor(max_workers=self._workers) as pool:
-            videos = dict(zip(words, pool.map(self._video_for, words)))
+            futures = {pool.submit(self._video_for, w): w for w in words}
+            for done, future in enumerate(as_completed(futures), start=1):
+                videos[futures[future]] = future.result()
+                if on_progress:
+                    on_progress(done, len(words))
         return [
             self.for_sign(s) if s.kind == "fingerspell" else videos[s.gloss] or self._spelling_for(s)
             for s in signs

@@ -11,6 +11,7 @@ from pathlib import Path
 import flask
 from werkzeug.utils import secure_filename
 
+from asl_util.jobs import JobFailed, JobRunner
 from asl_util.pipeline import translate_video
 from asl_util.poses import PoseStore
 from asl_util.signbank import GlossIndex, SignMedia, VideoResolver
@@ -39,8 +40,26 @@ def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, me
     poses = poses or PoseStore(cache_dir / "poses")
     media = media or SignMedia(GlossIndex.load(), VideoResolver(cache_dir / "signbank_videos.json"), poses)
 
+    jobs = JobRunner()
+
     def error(message: str, status: int):
         return flask.jsonify({"error": message}), status
+
+    def save_upload():
+        """Check and save the uploaded file. Returns (path, None) or (None, error response)."""
+        file = flask.request.files.get("file")
+        if file is None:
+            return None, error("No file was uploaded. Send the video in a form field named 'file'.", 400)
+        if not file.filename:
+            return None, error("No file selected.", 400)
+        suffix = Path(secure_filename(file.filename)).suffix.lower()
+        if suffix not in ALLOWED_EXTENSIONS:
+            allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
+            return None, error(f"Unsupported file type '{suffix or 'none'}'. Upload one of: {allowed}.", 415)
+        # Never trust the uploaded name as a path: store under a random name instead.
+        path = uploads / f"{uuid.uuid4().hex}{suffix}"
+        file.save(path)
+        return path, None
 
     @app.get("/")
     def home():
@@ -78,22 +97,40 @@ def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, me
     def healthz():
         return {"status": "ok"}
 
+    @app.post("/api/jobs")
+    def start_job():
+        """Start processing an upload in the background; poll GET /api/jobs/<id> for progress."""
+        path, failed = save_upload()
+        if failed:
+            return failed
+
+        def process(report):
+            try:
+                result = translate_video(path, transcriber, glosser, media, progress=report)
+            except TranscriptionError as exc:
+                log.warning("Transcription failed: %s", exc)
+                raise JobFailed(str(exc)) from exc
+            if not result["segments"]:
+                raise JobFailed("No speech was found in this video.")
+            return result
+
+        job_id = jobs.submit(process, cleanup=lambda: path.unlink(missing_ok=True))
+        return flask.jsonify(jobs.status(job_id)), 202
+
+    @app.get("/api/jobs/<job_id>")
+    def job_status(job_id: str):
+        status = jobs.status(job_id)
+        if status is None:
+            return error("No such job. It may have finished more than an hour ago.", 404)
+        return flask.jsonify(status)
+
     @app.post("/upload")
     def upload():
-        file = flask.request.files.get("file")
-        if file is None:
-            return error("No file was uploaded. Send the video in a form field named 'file'.", 400)
-        if not file.filename:
-            return error("No file selected.", 400)
-
-        suffix = Path(secure_filename(file.filename)).suffix.lower()
-        if suffix not in ALLOWED_EXTENSIONS:
-            allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
-            return error(f"Unsupported file type '{suffix or 'none'}'. Upload one of: {allowed}.", 415)
-
-        # Never trust the uploaded name as a path: store under a random name instead.
-        path = uploads / f"{uuid.uuid4().hex}{suffix}"
-        file.save(path)
+        """Process an upload and return the result in one request (simple API clients)."""
+        path, failed = save_upload()
+        if failed:
+            return failed
+        file = flask.request.files["file"]
         try:
             result = translate_video(path, transcriber, glosser, media)
         except TranscriptionError as exc:

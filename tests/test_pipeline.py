@@ -87,3 +87,16 @@ def test_video_output_has_one_segment_per_sentence():
     out = translate_video("v.mp4", FakeTranscriber(segments=[THREE_SENTENCES]), FakeGlosser())
     assert [(s["start"], s["text"]) for s in out["segments"]] == [(0.0, "This is long."), (2.0, "What's that?"), (4.0, "It's long")]
     assert out["transcript"] == THREE_SENTENCES.text
+
+
+def test_progress_is_reported_through_each_stage():
+    from conftest import FakeGlosser, fake_media
+    seen = []
+    translate_video(
+        "v.mp4", FakeTranscriber(segments=[THREE_SENTENCES]), FakeGlosser(), fake_media(),
+        progress=lambda stage, done=None, total=None: seen.append((stage, done, total)),
+    )
+    stages = [s for s, _, _ in seen]
+    assert stages[0] == "transcribing"
+    assert [d for s, d, t in seen if s == "translating"] == [0, 1, 2]  # one per sentence
+    assert seen[-1][0] == "animating" and seen[-1][1] == seen[-1][2]  # finishes with every word done
