@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SignMeUp – Compare signs</title>
+  <style>
+    :root { --bg: #f6f4f0; --ink: #1f2937; --muted: #6b7280; --card: #ffffff; --accent: #2f6f5e; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+    main { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .note { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+    .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; font-size: 14px; }
+    select, button { font: inherit; padding: 6px 10px; border-radius: 8px; border: 1px solid #d1d5db; background: var(--card); }
+    .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 800px) { .panes { grid-template-columns: 1fr; } }
+    .pane { background: var(--card); border-radius: 12px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .pane h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+    video, canvas { width: 100%; display: block; border-radius: 8px; }
+    video { background: #000; }
+    canvas { background: #fbfaf7; aspect-ratio: 4 / 3; }
+    #state { font-size: 13px; color: var(--muted); margin-top: 8px; min-height: 18px; }
+    .credit { margin-top: 16px; font-size: 12px; color: var(--muted); }
+    .credit a { color: var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Compare signs</h1>
+  <p class="note">The original ASL Signbank video next to the 2D animation made from it, frame by frame. Use it to judge how accurate each animation is. Signs appear here once a video using them has been uploaded.</p>
+  <div class="controls">
+    <label>Sign <select id="sign"></select></label>
+    <label>Speed
+      <select id="speed"><option value="1">1×</option><option value="0.5">0.5×</option><option value="0.25">0.25×</option></select>
+    </label>
+    <button id="step" type="button">Next frame</button>
+  </div>
+  <div class="panes">
+    <div class="pane"><h2>Signbank video</h2><video id="video" muted loop playsinline autoplay></video></div>
+    <div class="pane"><h2>Animation</h2><canvas id="canvas" width="1200" height="900"></canvas><div id="state"></div></div>
+  </div>
+  <p class="credit">Videos from <a href="https://aslsignbank.com" target="_blank" rel="noopener">ASL Signbank</a> (Hochgesang, Crasborn &amp; Lillo-Martin, CC BY-NC-SA 4.0); animations tracked from them with MediaPipe.</p>
+</main>
+
+<script src="/static/js/signer.js"></script>
+<script>
+const video = document.getElementById('video');
+const ctx = document.getElementById('canvas').getContext('2d');
+const select = document.getElementById('sign');
+let clip = null;
+
+async function load() {
+  const signs = await fetch('/poses/').then(r => r.json());
+  for (const s of signs) select.append(new Option(s.gloss, s.id));
+  if (signs.length) await show(signs[0].id);
+  else document.getElementById('state').textContent = 'No animations yet: upload a video on the prototype page first.';
+}
+
+async function show(id) {
+  clip = await fetch(`/poses/${id}.json?nocache=${Date.now()}`).then(r => r.json());
+  video.src = clip.video;
+  video.playbackRate = Number(document.getElementById('speed').value);
+}
+
+select.addEventListener('change', () => show(select.value));
+document.getElementById('speed').addEventListener('change', e => { video.playbackRate = Number(e.target.value); });
+document.getElementById('step').addEventListener('click', () => {
+  video.pause();
+  video.currentTime = Math.min(video.duration, video.currentTime + 1 / (clip?.fps || 24));
+});
+
+// The animation frame for the video's current time. The animation keeps only the frames
+// of the sign itself, starting at clip.first_frame in the original video.
+function tick() {
+  if (clip) {
+    const at = video.currentTime * clip.fps - clip.first_frame;
+    const inside = at >= 0 && at <= clip.frames.length - 1;
+    const i = Math.max(0, Math.min(clip.frames.length - 1, at));
+    const frame = Signer.lerpFrame(clip.frames[Math.floor(i)], clip.frames[Math.ceil(i)], i - Math.floor(i));
+    Signer.drawFigure(ctx, inside ? frame : clip.rest);
+    if (!inside) { ctx.fillStyle = 'rgba(251,250,247,.6)'; ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height); }
+    document.getElementById('state').textContent = inside
+      ? `Frame ${Math.round(at) + 1} of ${clip.frames.length} kept`
+      : 'Outside the sign (trimmed: hands travelling or at rest)';
+  }
+  requestAnimationFrame(tick);
+}
+
+load();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

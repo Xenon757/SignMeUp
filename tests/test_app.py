@@ -149,3 +149,10 @@ def test_pipeline_keeps_each_segment_timing():
     out = translate_video("video.mp4", FakeTranscriber(segments=segments), FakeGlosser())
     assert [(s["start"], s["end"]) for s in out["segments"]] == [(1.23, 3.46), (4.0, 6.0)]
     assert out["result"] == "go home now"
+
+
+def test_compare_page_and_animation_list(client):
+    assert client.get("/compare").status_code == 200
+    upload(client)
+    listed = client.get("/poses/").get_json()
+    assert [a["gloss"] for a in listed] == ["HELLO"]

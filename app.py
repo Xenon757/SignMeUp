@@ -50,6 +50,15 @@ def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, me
     def pose_prototype():
         return flask.render_template("pose_prototype.html")
 
+    @app.get("/compare")
+    def compare():
+        return flask.render_template("compare.html")
+
+    @app.get("/poses/")
+    def pose_list():
+        # Animations already made, for the comparison page.
+        return flask.jsonify(poses.animations())
+
     @app.get("/poses/<int:entry_id>.json")
     def pose(entry_id: int):
         # Only animations already made during an upload are served; this never starts tracking.

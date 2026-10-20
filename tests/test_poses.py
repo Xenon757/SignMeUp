@@ -177,3 +177,14 @@ def test_store_retries_after_download_error(tmp_path):
     poses = store(tmp_path, FakeTools(fail=True))
     assert not poses.ensure(1037, "CATf", "https://example/cat.mp4")
     assert not poses.path(1037).exists()
+
+
+def test_clip_records_where_it_starts_in_the_original_video():
+    clip = build_clip("CAT", signing_video(), fps=24.0, width=400, height=200)
+    assert clip["first_frame"] == 7  # 4 rest frames + 3 frames travelling up
+
+
+def test_store_lists_its_animations(tmp_path):
+    poses = store(tmp_path, FakeTools())
+    poses.ensure(1037, "CATf", "https://example/cat.mp4")
+    assert poses.animations() == [{"id": 1037, "gloss": "CATf", "video": "https://example/cat.mp4"}]

@@ -70,7 +70,7 @@ HOLD_MOTION = 0.012
 MIN_FRAMES = 6  # never trim a sign shorter than this
 
 # Bump when the stored animation format or trimming changes, so cached files are remade.
-CLIP_VERSION = 2
+CLIP_VERSION = 3
 
 Point = List[float]
 Frame = dict  # {"pose": [Point] | None, "leftHand": ..., "rightHand": ..., "face": ...}
@@ -219,7 +219,14 @@ def build_clip(gloss: str, frames: List[Frame], fps: float, width: int, height: 
     rest = next(f for f in body if f["pose"])
     signing = body[start : end + 1]
     a, b = sign_core(signing, rest)
-    return {"version": CLIP_VERSION, "gloss": gloss, "fps": round(fps, 3), "rest": rest, "frames": signing[a : b + 1]}
+    return {
+        "version": CLIP_VERSION,
+        "gloss": gloss,
+        "fps": round(fps, 3),
+        "first_frame": start + a,  # where the kept frames start in the original video
+        "rest": rest,
+        "frames": signing[a : b + 1],
+    }
 
 
 def track_video(video: Path, model_path: Path) -> Tuple[List[Frame], float, int, int]:
@@ -317,6 +324,17 @@ class PoseStore:
         clip = self._cached(entry_id)
         return bool(clip and clip["frames"])
 
+    def animations(self) -> List[dict]:
+        """Every current cached animation with frames: [{id, gloss, video}], by gloss."""
+        found = []
+        for path in self.cache_dir.glob("*.json") if self.cache_dir.exists() else []:
+            if not path.stem.isdigit():
+                continue
+            clip = self._cached(int(path.stem))
+            if clip and clip["frames"]:
+                found.append({"id": int(path.stem), "gloss": clip["gloss"], "video": clip.get("video")})
+        return sorted(found, key=lambda a: a["gloss"])
+
     def ensure(self, entry_id: int, gloss: str, video_url: str) -> bool:
         if self._cached(entry_id) is not None:
             return self.has_animation(entry_id)
@@ -327,6 +345,7 @@ class PoseStore:
                 self._download(video_url, video)
                 frames, fps, width, height = self._track(video, self._model_path)
             clip = build_clip(gloss, frames, fps, width, height)
+            clip["video"] = video_url
         except Exception as exc:  # network errors, unreadable videos, MediaPipe errors
             log.warning("Could not make a pose animation for %s (%s): %s", gloss, entry_id, exc)
             return False

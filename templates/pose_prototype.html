@@ -60,7 +60,10 @@
   <p class="credit">Sign motion derived from <a href="https://aslsignbank.com" target="_blank" rel="noopener">ASL Signbank</a> videos (Hochgesang, Crasborn &amp; Lillo-Martin, CC BY-NC-SA 4.0), tracked with MediaPipe.</p>
 </main>
 
+<script src="/static/js/signer.js"></script>
 <script>
+const { lerpFrame } = Signer;
+
 // Timing rules. Each sentence is signed in one of two modes:
 //  - aligned: when the speech is slow enough, each sign starts as its word is said;
 //  - sentence: in fast stretches, like closed captions, the sentence's signs start when
@@ -82,14 +85,6 @@ const SPELL_TIME = 0.8;
 const SPELL_TIME_PER_LETTER = 0.05;
 const spellTime = letters => SPELL_TIME + SPELL_TIME_PER_LETTER * letters;
 const UNSIGNED_WORD_TIME = 0.45; // a word with no sign animation: only highlighted in the sentence
-
-const HAND_BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
-                    [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-const PALM = [0, 1, 5, 9, 13, 17];
-// Face points are stored outline after outline, in this order and length (see asl_util/poses.py).
-const FACE_OUTLINES = [["oval", 36], ["lips", 20], ["leftEye", 16], ["rightEye", 16], ["leftBrow", 10], ["rightBrow", 10]];
-// Pose points: 0 nose, 1-2 shoulders, 3-4 elbows, 5-6 wrists, 7-8 hips.
-const COLORS = { body: '#334a6b', skin: '#e9c9a8', hand: '#c98f62', line: '#1f2937', torso: '#d7dee9' };
 
 const video = document.getElementById('video');
 const canvas = document.getElementById('canvas');
@@ -278,21 +273,8 @@ function optimalRate(segments, poses) {
 
 // ---------- what to show at time t ----------
 
-function lerp(a, b, k) {
-  if (!a) return b;
-  if (!b) return a;
-  return a.map((p, i) => [p[0] + (b[i][0] - p[0]) * k, p[1] + (b[i][1] - p[1]) * k]);
-}
-
-function lerpFrame(a, b, k) {
-  if (!a || !b) return a || b;
-  return { pose: lerp(a.pose, b.pose, k), leftHand: lerp(a.leftHand, b.leftHand, k),
-           rightHand: lerp(a.rightHand, b.rightHand, k), face: lerp(a.face, b.face, k) };
-}
-
 function poseFrame(clip, progress) {
-  const frames = clip.pose.frames;
-  return frames[Math.min(frames.length - 1, Math.floor(progress * frames.length))];
+  return Signer.frameAt(clip.pose.frames, progress);
 }
 
 const firstFrame = clip => clip.kind === 'pose' ? clip.pose.frames[0] : null;
@@ -334,81 +316,11 @@ function stateAt(t) {
 
 // ---------- drawing ----------
 
-// Body space -> canvas: shoulders centred a little below the middle, about 3.6 shoulder widths across.
-function toCanvas([x, y]) {
-  const unit = canvas.width / 3.6;
-  return [canvas.width / 2 + x * unit, canvas.height * 0.62 + y * unit];
-}
-
-function path(points, close) {
-  ctx.beginPath();
-  points.forEach((p, i) => { const [x, y] = toCanvas(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  if (close) ctx.closePath();
-}
-
-function line(a, b, width, color) {
-  ctx.lineWidth = width; ctx.strokeStyle = color; ctx.lineCap = 'round';
-  path([a, b]); ctx.stroke();
-}
-
-function faceParts(face) {
-  const parts = {};
-  let i = 0;
-  for (const [name, n] of FACE_OUTLINES) { parts[name] = face.slice(i, i + n); i += n; }
-  return parts;
-}
-
-function drawHand(hand, wrist) {
-  if (!hand) return;
-  const s = canvas.width / 900;
-  ctx.fillStyle = COLORS.skin;
-  path(PALM.map(i => hand[i]), true); ctx.fill();
-  for (const [a, b] of HAND_BONES) line(hand[a], hand[b], 9 * s, COLORS.hand);
-  for (const p of hand) { const [x, y] = toCanvas(p); ctx.beginPath(); ctx.arc(x, y, 4.5 * s, 0, 7); ctx.fillStyle = COLORS.line; ctx.fill(); }
-}
-
-function draw(frame) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (!frame?.pose) return;
-  const s = canvas.width / 900;
-  const [nose, lSh, rSh, lEl, rEl, lWr, rWr, lHip, rHip] = frame.pose;
-
-  // Torso
-  ctx.fillStyle = COLORS.torso;
-  path([lSh, rSh, rHip, lHip], true); ctx.fill();
-
-  // Head
-  if (frame.face) {
-    const f = faceParts(frame.face);
-    ctx.fillStyle = COLORS.skin; path(f.oval, true); ctx.fill();
-    ctx.fillStyle = COLORS.line;
-    for (const part of ['leftBrow', 'rightBrow']) { path(f[part], true); ctx.fill(); }
-    ctx.lineWidth = 3 * s; ctx.strokeStyle = COLORS.line;
-    for (const part of ['leftEye', 'rightEye']) { path(f[part], true); ctx.stroke(); }
-    ctx.fillStyle = '#9b4a4a'; path(f.lips, true); ctx.fill();
-  } else {
-    const [x, y] = toCanvas(nose); const r = Math.abs(toCanvas(lSh)[0] - toCanvas(rSh)[0]) * 0.32;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = COLORS.skin; ctx.fill();
-  }
-
-  // Arms end at the tracked hand's wrist when there is one, so arm and hand stay joined.
-  const lHandWrist = frame.leftHand ? frame.leftHand[0] : lWr;
-  const rHandWrist = frame.rightHand ? frame.rightHand[0] : rWr;
-  for (const [sh, elb, wr] of [[lSh, lEl, lHandWrist], [rSh, rEl, rHandWrist]]) {
-    line(sh, elb, 26 * s, COLORS.body);
-    line(elb, wr, 22 * s, COLORS.body);
-  }
-  line(lSh, rSh, 26 * s, COLORS.body);
-
-  drawHand(frame.leftHand);
-  drawHand(frame.rightHand);
-}
-
 function drawCard(text) {
   ctx.fillStyle = 'rgba(255,255,255,.88)';
   const w = canvas.width * 0.6, h = canvas.height * 0.2;
   ctx.fillRect((canvas.width - w) / 2, canvas.height * 0.72, w, h);
-  ctx.fillStyle = COLORS.line;
+  ctx.fillStyle = Signer.COLORS.line;
   ctx.font = `600 ${Math.round(canvas.height * 0.08)}px system-ui, sans-serif`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(text, canvas.width / 2, canvas.height * 0.82);
@@ -467,7 +379,7 @@ video.addEventListener('seeked', () => { endedAt = null; });
 function tick() {
   const t = endedAt === null ? video.currentTime : video.duration + (performance.now() - endedAt) / 1000 * video.playbackRate;
   const { frame, clip } = stateAt(t);
-  draw(frame);
+  Signer.drawFigure(ctx, frame);
   if (clip?.kind === 'spell') drawSpelling(clip);
   const pace = clip?.kind === 'spell' ? 'fingerspelling' : `${clip?.speed.toFixed(1)}×`;
   el('speed').textContent = clip ? `${clip.mode === 'aligned' ? 'aligned to speech' : 'sentence mode'} · ${pace}` : '';
