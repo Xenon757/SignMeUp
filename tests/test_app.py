@@ -4,6 +4,7 @@ import io
 
 from app import create_app
 from asl_util.pipeline import translate_video
+from asl_util.poses import CLIP_VERSION
 from asl_util.transcribe import Segment
 
 from conftest import HELLO_VIDEO, FakeGlosser, FakeTranscriber
@@ -55,8 +56,8 @@ def test_upload_attaches_sign_media(client):
 
 def test_upload_makes_pose_animation_and_serves_it(client):
     hello = upload(client).get_json()["segments"][0]["signs"][0]
-    assert hello["media"]["pose"] == "/poses/482.json"
-    res = client.get("/poses/482.json")
+    assert hello["media"]["pose"] == f"/poses/482.json?v={CLIP_VERSION}"
+    res = client.get(hello["media"]["pose"])
     assert res.status_code == 200
     assert res.get_json()["gloss"] == "HELLO"
     assert res.get_json()["frames"]

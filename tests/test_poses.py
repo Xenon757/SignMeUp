@@ -3,7 +3,16 @@ MediaPipe and the network are replaced by fakes."""
 
 import json
 
-from asl_util.poses import PoseStore, active_range, build_clip, fill_hand_gaps, to_body_space
+from asl_util.poses import (
+    CLIP_VERSION,
+    MIN_FRAMES,
+    PoseStore,
+    active_range,
+    build_clip,
+    fill_hand_gaps,
+    sign_core,
+    to_body_space,
+)
 
 # A 400x200 video. Shoulders at y=0.4, hips at y=0.9, wrists resting at y=0.9.
 SHOULDERS = [[0.6, 0.4], [0.4, 0.4]]   # signer's left shoulder is on the image's right
@@ -67,11 +76,36 @@ def test_body_space_makes_different_framings_match():
     assert to_body_space([near], 400, 200)[0]["pose"] == to_body_space([far], 400, 200)[0]["pose"]
 
 
-def test_build_clip_keeps_only_signing_frames_and_a_rest_frame():
-    frames = [frame()] * 5 + [frame(wrist_y=0.5, right_hand=hand(0.4, 0.5))] * 4 + [frame()] * 6
-    clip = build_clip("CAT", frames, fps=24.0, width=400, height=200)
+def signing_video():
+    """Rest, the right hand travelling up, signing (moving side to side), travelling down, rest."""
+    up = [frame(wrist_y=y) for y in (0.85, 0.8, 0.7)]
+    signing = [frame(wrist_y=0.5, right_hand=hand(0.40 + 0.03 * (i % 2), 0.5)) for i in range(8)]
+    down = [frame(wrist_y=y) for y in (0.7, 0.8, 0.85)]
+    return [frame()] * 4 + up + signing + down + [frame()] * 4
+
+
+def test_build_clip_keeps_only_the_sign_itself_and_a_rest_frame():
+    clip = build_clip("CAT", signing_video(), fps=24.0, width=400, height=200)
     assert len(clip["frames"]) == 8
-    assert clip["rest"]["pose"][5][1] > clip["frames"][3]["pose"][5][1]  # wrist lower at rest
+    wrist_ys = {round(f["pose"][6][1], 3) for f in clip["frames"]}
+    assert len(wrist_ys) == 1  # every kept frame is in signing position, none travelling
+    assert clip["rest"]["pose"][6][1] > clip["frames"][0]["pose"][6][1]  # wrist lower at rest
+    assert clip["version"] == CLIP_VERSION
+
+
+def test_sign_core_trims_still_holds_at_both_ends():
+    still = frame(wrist_y=0.5, right_hand=hand(0.4, 0.5))
+    moving = [frame(wrist_y=0.5, right_hand=hand(0.40 + 0.03 * (i % 2), 0.5)) for i in range(8)]
+    frames = to_body_space([frame()] + [still] * 5 + moving + [still] * 5, 400, 200)
+    a, b = sign_core(frames[1:], frames[0])
+    assert (a, b) == (5, 13)  # from the first moving frame to where the hand comes to rest
+
+
+def test_sign_core_keeps_a_minimum_length():
+    still = frame(wrist_y=0.5, right_hand=hand(0.4, 0.5))
+    frames = to_body_space([frame()] + [still] * 12, 400, 200)
+    a, b = sign_core(frames[1:], frames[0])
+    assert b - a + 1 == MIN_FRAMES
 
 
 def test_build_clip_without_body_has_no_frames():
@@ -126,6 +160,17 @@ def test_store_remembers_signs_that_could_not_be_tracked(tmp_path):
     assert not poses.ensure(5, "X", "https://example/x.mp4")
     assert not poses.ensure(5, "X", "https://example/x.mp4")
     assert tools.tracked == 1
+
+
+def test_store_remakes_animations_from_an_older_version(tmp_path):
+    tools = FakeTools()
+    poses = store(tmp_path, tools)
+    poses.cache_dir.mkdir(parents=True)
+    poses.path(1037).write_text(json.dumps({"gloss": "CATf", "frames": [{}]}))  # no version: old format
+    assert not poses.has_animation(1037)
+    assert poses.ensure(1037, "CATf", "https://example/cat.mp4")
+    assert tools.tracked == 1
+    assert json.loads(poses.path(1037).read_text())["version"] == CLIP_VERSION
 
 
 def test_store_retries_after_download_error(tmp_path):

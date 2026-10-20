@@ -60,6 +60,18 @@ WRIST_OF_HAND = {"leftHand": LEFT_WRIST, "rightHand": RIGHT_WRIST}
 ACTIVE_RISE = 0.15
 ACTIVE_PAD = 2  # frames kept on each side of the signing range
 
+# Within that range, the sign itself starts once the main hand has risen this
+# fraction of the way from rest to its highest point, and ends when it drops
+# back below it. Frames outside are the hand travelling to and from the waist.
+IN_PLACE = 0.6
+# A sign can also start or end by holding still. Frames at either end where the
+# main hand moves less than this (shoulder widths per frame) are trimmed too.
+HOLD_MOTION = 0.012
+MIN_FRAMES = 6  # never trim a sign shorter than this
+
+# Bump when the stored animation format or trimming changes, so cached files are remade.
+CLIP_VERSION = 2
+
 Point = List[float]
 Frame = dict  # {"pose": [Point] | None, "leftHand": ..., "rightHand": ..., "face": ...}
 
@@ -146,19 +158,68 @@ def to_body_space(frames: List[Frame], width: int, height: int, digits: int = 3)
     return [{part: convert(f[part]) for part in PARTS} for f in frames]
 
 
+def _hand_motion(a: Frame, b: Frame, wrist: int, hand: str) -> float:
+    """How far the main hand moves between two frames (mean point distance)."""
+    if a[hand] and b[hand]:
+        pairs = list(zip(a[hand], b[hand]))
+    elif a["pose"] and b["pose"]:
+        pairs = [(a["pose"][wrist], b["pose"][wrist])]
+    else:
+        return 0.0
+    return sum(((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2) ** 0.5 for p, q in pairs) / len(pairs)
+
+
+def sign_core(frames: List[Frame], rest: Frame) -> Tuple[int, int]:
+    """The frames of the sign itself, without the hand's trip up and down or still holds.
+
+    `frames` and `rest` are in body space (y grows downwards). The main hand is
+    the one that moves the most. Returns the first and last index to keep.
+    """
+    if len(frames) <= MIN_FRAMES or not rest or not rest["pose"]:
+        return 0, len(frames) - 1
+    bodies = [i for i, f in enumerate(frames) if f["pose"]]
+    if not bodies:
+        return 0, len(frames) - 1
+    # The main hand is the one that moves the most over the clip.
+    def total_motion(wrist: int, hand: str) -> float:
+        return sum(_hand_motion(frames[i], frames[i + 1], wrist, hand) for i in range(len(frames) - 1))
+
+    wrist, hand = max(((LEFT_WRIST, "leftHand"), (RIGHT_WRIST, "rightHand")), key=lambda wh: total_motion(*wh))
+    rest_y = rest["pose"][wrist][1]
+    top_y = min(frames[i]["pose"][wrist][1] for i in bodies)
+    level = rest_y - IN_PLACE * (rest_y - top_y)
+    in_place = [i for i in bodies if frames[i]["pose"][wrist][1] <= level]
+    if not in_place:
+        return 0, len(frames) - 1
+    a, b = in_place[0], in_place[-1]
+    while b - a + 1 > MIN_FRAMES and _hand_motion(frames[a], frames[a + 1], wrist, hand) < HOLD_MOTION:
+        a += 1
+    while b - a + 1 > MIN_FRAMES and _hand_motion(frames[b - 1], frames[b], wrist, hand) < HOLD_MOTION:
+        b -= 1
+    if b - a + 1 < MIN_FRAMES:  # very short signs: widen back out around the core
+        extra = MIN_FRAMES - (b - a + 1)
+        a = max(0, a - extra // 2)
+        b = min(len(frames) - 1, a + MIN_FRAMES - 1)
+    return a, b
+
+
 def build_clip(gloss: str, frames: List[Frame], fps: float, width: int, height: int) -> dict:
     """Turn raw tracked frames into the animation the page plays.
 
     `rest` is the first frame (hands down), used when nothing is being signed.
-    `frames` holds only the signing range.
+    `frames` holds only the sign itself: no lead-in or lead-out with the hands
+    at rest, no travel to and from the waist, and no still holds at the ends,
+    so the sign is recognisable from its first frame.
     """
     if not any(f["pose"] for f in frames):
-        return {"gloss": gloss, "fps": fps, "rest": None, "frames": []}
+        return {"version": CLIP_VERSION, "gloss": gloss, "fps": fps, "rest": None, "frames": []}
     start, end = active_range(frames)
     fill_hand_gaps(frames, start, end)
     body = to_body_space(frames, width, height)
     rest = next(f for f in body if f["pose"])
-    return {"gloss": gloss, "fps": round(fps, 3), "rest": rest, "frames": body[start : end + 1]}
+    signing = body[start : end + 1]
+    a, b = sign_core(signing, rest)
+    return {"version": CLIP_VERSION, "gloss": gloss, "fps": round(fps, 3), "rest": rest, "frames": signing[a : b + 1]}
 
 
 def track_video(video: Path, model_path: Path) -> Tuple[List[Frame], float, int, int]:
@@ -243,15 +304,21 @@ class PoseStore:
     def path(self, entry_id: int) -> Path:
         return self.cache_dir / f"{entry_id}.json"
 
-    def has_animation(self, entry_id: int) -> bool:
-        """True if the cached pose file exists and has signing frames."""
+    def _cached(self, entry_id: int) -> Optional[dict]:
+        """The cached animation, or None if missing, unreadable or made by an older version."""
         try:
-            return bool(json.loads(self.path(entry_id).read_text(encoding="utf-8"))["frames"])
-        except (OSError, ValueError, KeyError):
-            return False
+            clip = json.loads(self.path(entry_id).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return clip if clip.get("version") == CLIP_VERSION else None
+
+    def has_animation(self, entry_id: int) -> bool:
+        """True if a current cached animation exists and has signing frames."""
+        clip = self._cached(entry_id)
+        return bool(clip and clip["frames"])
 
     def ensure(self, entry_id: int, gloss: str, video_url: str) -> bool:
-        if self.path(entry_id).exists():
+        if self._cached(entry_id) is not None:
             return self.has_animation(entry_id)
         try:
             self._ensure_model()

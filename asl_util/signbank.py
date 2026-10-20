@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence, Tupl
 
 from .translate import Sign
 
+from .poses import CLIP_VERSION
+
 if TYPE_CHECKING:
     from .poses import PoseStore
 
@@ -189,6 +191,7 @@ class SignMedia:
                     "source": "ASL Signbank (CC BY-NC-SA 4.0)",
                 }
                 if self._poses and self._poses.ensure(entry_id, gloss, url):
-                    media["pose"] = f"/poses/{entry_id}.json"
+                    # The version in the URL makes browsers fetch remade animations instead of old cached ones.
+                    media["pose"] = f"/poses/{entry_id}.json?v={CLIP_VERSION}"
                 return media
         return None
