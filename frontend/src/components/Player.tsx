@@ -215,6 +215,10 @@ export function Player({ src, audioOnly, segments, poses }: Props) {
         </div>
         <div className="signer-box" aria-label="ASL signing">
           <canvas ref={canvas} width={1000} height={1000} role="img" aria-label={playing ? `Signing ${playing.label}` : 'Signer'} />
+          {/* The sign being made. One line of fixed height, sized to the box, so a long word
+              never makes the box or the figure change size (it is cut off with "…" instead).
+              Hidden from screen readers: the highlighted sentence below already says it. */}
+          <p className="sign-label" aria-hidden="true" title={latest?.label}>{latest?.label ?? '\u00a0'}</p>
         </div>
         <div className="subtitles">
           <p className="signing" aria-live="polite">

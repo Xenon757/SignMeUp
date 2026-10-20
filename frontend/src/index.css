@@ -104,7 +104,15 @@ button.toggle[aria-pressed='true'] { background: var(--accent); color: var(--acc
 .viewer { display: grid; gap: 12px; }
 .media-box, .signer-box { min-width: 0; }
 .media-box video { width: 100%; display: block; border-radius: 12px; background: #000; max-height: 72vh; }
+.signer-box { container-type: inline-size; }
 .signer-box canvas { width: 100%; aspect-ratio: 1 / 1; display: block; border-radius: 12px; background: var(--canvas); }
+/* Font size and height are fractions of the box's width (cqw), so the label scales with the
+   box but its size never depends on the word. */
+.sign-label {
+  margin: 0; height: 12cqw; line-height: 12cqw; font-size: 8cqw; font-weight: 700; letter-spacing: 0.04em;
+  text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink);
+  font-family: Poppins, system-ui, sans-serif;
+}
 .subtitles { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px 14px; }
 .subtitles .signing { margin: 0 0 4px; }
 .subtitles .caption { margin: 0; font-size: 0.9375rem; color: var(--muted); }
