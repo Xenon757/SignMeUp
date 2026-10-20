@@ -3,7 +3,7 @@ import { ApiError, getJob, isAudio, loadPoses, startJob } from '../api';
 import { Player } from '../components/Player';
 import type { Activity } from '../components/Progress';
 import { Progress } from '../components/Progress';
-import { Upload } from '../components/Upload';
+import { Landing } from '../components/Landing';
 import type { PoseClip, Segment } from '../types';
 
 type State =
@@ -48,20 +48,7 @@ export function HomePage() {
 
   return (
     <main className="home">
-      {state.phase === 'idle' && (
-        <section className="hero">
-          <h1>Stories should be understood by all</h1>
-          <p className="lede">
-            Upload a video or audio clip. SignMeUp transcribes the speech, translates it to ASL word order, and signs it
-            with an animated figure built from real ASL dictionary videos, in time with the speech.
-          </p>
-          <Upload onFile={process} />
-          <p className="muted small">
-            A student project, not a replacement for a human interpreter. Signs come from{' '}
-            <a href="https://aslsignbank.com" target="_blank" rel="noopener">ASL Signbank</a>; words without a sign are fingerspelled.
-          </p>
-        </section>
-      )}
+      {state.phase === 'idle' && <Landing onFile={process} />}
 
       {state.phase === 'working' && <Progress activity={state.activity} fileName={state.file.name} />}
 

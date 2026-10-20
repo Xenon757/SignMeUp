@@ -2,6 +2,10 @@
 
 SignMeUp bridges the gap for deaf and hard-of-hearing viewers by turning English captions into ASL subtitles, making stories, lessons, and conversations truly accessible to everyone.
 
+## Why
+
+Captions are written English, but for many Deaf people ASL is their first language and English their second. ASL is "a complete, natural language" whose grammar "differs from English" ([NIDCD](https://www.nidcd.nih.gov/health/american-sign-language)). A national study put the median English reading comprehension of deaf and hard of hearing high school graduates at about a fourth-grade level ([Traxler, 2000](https://doi.org/10.1093/deafed/5.4.337)), though half read above that and researchers caution the figure is often over-simplified ([Marschark](https://www.handsandvoices.org/articles/research/v9-2_marschark.htm)). And signing with captions can beat either alone: in one study of 51 sign language users, deaf viewers understood signed videos 24% better with captions added ([Debevc et al., 2015](https://doi.org/10.1371/journal.pone.0127577)). So SignMeUp signs the speech and keeps the captions. The landing page explains this with the same sources.
+
 ## What it does
 A user uploads a video or audio file. SignMeUp transcribes it with OpenAI's Whisper model, keeping the time each word was spoken. Each sentence goes through an English-to-ASL translation step that applies ASL grammar rules, and the page signs it with a 2D animated figure built from reference videos on [ASL Signbank](https://aslsignbank.com). Like a TV sign language interpreter, the figure sits in a solid box in a corner of the video (any corner, three sizes); it can also be shown side by side with the video, which is the default on phones and for audio. A full-screen mode keeps the signer and subtitles on screen. While the file is processed, the page shows each real stage (uploading, transcribing, translating sentence by sentence, preparing the sign animations word by word). The layout stacks on phones so the video and the figure fit on one screen.
 

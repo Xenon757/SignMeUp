@@ -37,7 +37,7 @@ export function Upload({ onFile }: Props) {
         />
         <span className="dropzone-icon" aria-hidden="true">⬆</span>
         <span className="dropzone-title">Drop a video or audio file</span>
-        <span className="dropzone-hint">or <u>choose a file</u> · MP4, MOV, WebM, MP3, WAV, M4A · up to 200 MB</span>
+        <span className="dropzone-hint">or <u>choose a file</u></span>
       </label>
       {problem && <p className="problem" role="alert">{problem}</p>}
     </div>
