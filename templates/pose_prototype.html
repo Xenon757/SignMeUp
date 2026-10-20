@@ -63,7 +63,7 @@ const BLEND = 0.12;            // seconds to blend one sign straight into the ne
 const HOLD = 0.4;              // in a pause, hold the last sign this long...
 const EASE = 0.3;              // ...then ease to or from the resting pose over this long
 const LETTER_TIME = 0.18;      // fingerspelled letter, at normal speed
-const WORD_CARD_TIME = 0.45;   // a word with no sign animation, shown as text
+const UNSIGNED_WORD_TIME = 0.45; // a word with no sign animation: only highlighted in the sentence
 
 const HAND_BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
                     [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
@@ -142,7 +142,7 @@ function buildTimeline(segments, poses) {
       } else if (sign.kind === 'fingerspell') {
         own.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + 0.2, word: sign.start, char: sign.start_char });
       } else {
-        own.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: WORD_CARD_TIME, char: sign.start_char });
+        own.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: UNSIGNED_WORD_TIME, char: sign.start_char });
       }
     }
     if (!own.length) return;
@@ -353,7 +353,6 @@ function tick() {
   const { frame, clip } = stateAt(t);
   draw(frame);
   if (clip?.kind === 'spell') drawSpelling(clip, (t - clip.start) / clip.length);
-  else if (clip?.kind === 'word') drawCard(clip.label);
   el('speed').textContent = clip ? `${clip.speed.toFixed(1)}× speed` : '';
   const lag = clip ? clip.behind : 0;
   el('lag').textContent = lag > 0.3 ? `· ${lag.toFixed(1)}s behind speech` : '';
