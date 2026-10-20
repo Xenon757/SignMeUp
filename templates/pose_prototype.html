@@ -30,7 +30,7 @@
 <body>
 <main>
   <h1>2D signing prototype</h1>
-  <p class="note">Upload a video. The right pane signs it with a figure animated from ASL Signbank sign videos: idle frames trimmed, signs blended together, and sped up (up to 2.5×) to keep pace with the speech.</p>
+  <p class="note">Upload a video. The right pane signs it with a figure animated from ASL Signbank sign videos. Each sign starts once its word has been said; when the signing falls behind, it speeds up (up to 2.5×) and catches up in pauses.</p>
   <input id="file" type="file" accept="video/*,audio/*">
   <div id="status">No video yet.</div>
 
@@ -53,9 +53,14 @@
 </main>
 
 <script>
-// Timing rules: how fast signs may be played and how long one sign blends into the next.
+// Timing rules. Dictionary clips are slower than conversational signing, so signs
+// play at BASE_SPEED, and faster (up to MAX_SPEED) the further behind the speech they are.
+const BASE_SPEED = 1.5;
 const MAX_SPEED = 2.5;
-const BLEND = 0.12;            // seconds
+const CATCH_UP = 0.5;          // extra speed per second behind
+const BLEND = 0.12;            // seconds to blend one sign straight into the next
+const HOLD = 0.4;              // in a pause, hold the last sign this long...
+const EASE = 0.3;              // ...then ease to or from the resting pose over this long
 const LETTER_TIME = 0.18;      // fingerspelled letter, at normal speed
 const WORD_CARD_TIME = 0.45;   // a word with no sign animation, shown as text
 
@@ -119,36 +124,36 @@ async function loadPoses(segments) {
 // Viewers only need the sign itself, so show THIRTY and WALK.
 const signName = gloss => gloss.replace(/[a-z0-9]+$/, '') || gloss;
 
-// Turn each spoken segment's signs into clips with start times on the video's clock.
+// Turn the signs into clips on the video's clock. A sign never starts before its English
+// word has been said (sign.start). If the previous sign is still playing, it waits and
+// the next one plays faster to catch up; in pauses the signing catches up completely.
 function buildTimeline(segments, poses) {
   const clips = [];
-  let cursor = 0;
   for (const seg of segments) {
-    const segClips = [];
     for (const sign of seg.signs) {
       const pose = sign.media?.pose ? poses[sign.media.pose] : null;
-      const last = segClips[segClips.length - 1];
+      const last = clips[clips.length - 1];
+      const spokenAt = sign.start ?? seg.start;
       if (pose?.frames.length) {
-        segClips.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps });
-      } else if (sign.kind === 'fingerspell' && last?.kind === 'spell') {
-        last.label += sign.gloss.toUpperCase();
+        clips.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps, spokenAt, text: seg.text });
+      } else if (sign.kind === 'fingerspell' && last?.kind === 'spell' && last.spokenAt === spokenAt) {
+        last.label += sign.gloss.toUpperCase();   // letters of the same name
         last.natural += LETTER_TIME;
       } else if (sign.kind === 'fingerspell') {
-        segClips.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + 0.2 });
+        clips.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + 0.2, spokenAt, text: seg.text });
       } else {
-        segClips.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: WORD_CARD_TIME });
+        clips.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: WORD_CARD_TIME, spokenAt, text: seg.text });
       }
     }
-    if (!segClips.length) continue;
-    const needed = segClips.reduce((t, c) => t + c.natural, 0) + BLEND * (segClips.length - 1);
-    const speed = Math.min(MAX_SPEED, Math.max(1, needed / Math.max(0.1, seg.end - seg.start)));
-    let t = Math.max(seg.start, cursor);
-    for (const clip of segClips) {
-      Object.assign(clip, { start: t, length: clip.natural / speed, speed, segEnd: seg.end, text: seg.text });
-      t += clip.length + BLEND / speed;
-      clips.push(clip);
-    }
-    cursor = t;
+  }
+
+  let free = 0;  // when the previous sign (plus its blend) finishes
+  for (const clip of clips) {
+    const start = Math.max(clip.spokenAt, free);
+    const behind = start - clip.spokenAt;
+    const speed = Math.min(MAX_SPEED, BASE_SPEED + behind * CATCH_UP);
+    Object.assign(clip, { start, length: clip.natural / speed, speed, behind });
+    free = start + clip.length + BLEND / speed;
   }
   return clips;
 }
@@ -175,27 +180,33 @@ function poseFrame(clip, progress) {
 const firstFrame = clip => clip.kind === 'pose' ? clip.pose.frames[0] : null;
 const lastFrame = clip => clip.kind === 'pose' ? clip.pose.frames.at(-1) : null;
 
+// The pose between clips: blend straight on if the next sign follows at once; otherwise
+// hold the last sign briefly, ease down to rest, and ease up into the next sign.
+function between(prev, next, t) {
+  const prevEnd = prev ? prev.start + prev.length : -Infinity;
+  const gap = next ? next.start - prevEnd : Infinity;
+  const from = (prev && lastFrame(prev)) || restFrame;
+  if (prev && next && gap <= BLEND + 1e-6) {
+    return lerpFrame(from, firstFrame(next) || restFrame, (t - prevEnd) / gap);
+  }
+  const since = t - prevEnd;
+  let frame = since < HOLD ? from : lerpFrame(from, restFrame, Math.min(1, (since - HOLD) / EASE));
+  const until = next ? next.start - t : Infinity;
+  if (until < EASE) frame = lerpFrame(frame, firstFrame(next) || frame, 1 - until / EASE);
+  return frame;
+}
+
 function stateAt(t) {
-  let held = restFrame;
   for (let i = 0; i < timeline.length; i++) {
     const clip = timeline[i];
-    if (t < clip.start) {
-      // Between the previous clip and this one: blend if the gap is short, otherwise hold.
-      const prev = timeline[i - 1];
-      const gap = prev ? clip.start - (prev.start + prev.length) : Infinity;
-      const into = prev ? t - (prev.start + prev.length) : 0;
-      if (prev && gap <= BLEND * 1.01) {
-        return { frame: lerpFrame(lastFrame(prev) || held, firstFrame(clip) || held, into / gap), clip: null };
-      }
-      return { frame: held, clip: null };
-    }
+    if (t < clip.start) return { frame: between(timeline[i - 1], clip, t), clip: null };
     if (t < clip.start + clip.length) {
+      const held = between(timeline[i - 1], clip, clip.start);
       const frame = clip.kind === 'pose' ? poseFrame(clip, (t - clip.start) / clip.length) : held;
       return { frame, clip };
     }
-    held = lastFrame(clip) || held;
   }
-  return { frame: held, clip: null };
+  return { frame: between(timeline.at(-1), null, t), clip: null };
 }
 
 // ---------- drawing ----------
@@ -309,9 +320,9 @@ function tick() {
   else if (clip?.kind === 'word') drawCard(clip.label);
   el('gloss').textContent = clip ? clip.label : '';
   el('speed').textContent = clip ? `${clip.speed.toFixed(1)}× speed` : '';
-  const lag = clip ? t - clip.segEnd : 0;
-  el('lag').textContent = lag > 0 ? `· ${lag.toFixed(1)}s behind speech` : '';
-  el('lag').className = lag > 0 ? 'behind' : '';
+  const lag = clip ? clip.behind : 0;
+  el('lag').textContent = lag > 0.3 ? `· ${lag.toFixed(1)}s behind speech` : '';
+  el('lag').className = lag > 0.3 ? 'behind' : '';
   const seg = segments.find(s => t >= s.start && t < s.end);
   el('spoken').textContent = seg ? seg.text : '';
   el('signing').textContent = clip ? clip.text : '';
