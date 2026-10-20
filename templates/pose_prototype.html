@@ -180,19 +180,24 @@ function poseFrame(clip, progress) {
 const firstFrame = clip => clip.kind === 'pose' ? clip.pose.frames[0] : null;
 const lastFrame = clip => clip.kind === 'pose' ? clip.pose.frames.at(-1) : null;
 
-// The pose between clips: blend straight on if the next sign follows at once; otherwise
-// hold the last sign briefly, ease down to rest, and ease up into the next sign.
+// The pose between clips. If the next sign comes soon, the hands move straight from the
+// end of one sign to the start of the next. In a longer pause they hold briefly, ease down
+// to rest, and rise again in the EASE seconds before the next word, so the sign itself
+// starts exactly when the word is said.
+const smooth = k => k * k * (3 - 2 * k);
+
 function between(prev, next, t) {
   const prevEnd = prev ? prev.start + prev.length : -Infinity;
   const gap = next ? next.start - prevEnd : Infinity;
   const from = (prev && lastFrame(prev)) || restFrame;
-  if (prev && next && gap <= BLEND + 1e-6) {
-    return lerpFrame(from, firstFrame(next) || restFrame, (t - prevEnd) / gap);
+  const to = (next && firstFrame(next)) || from;
+  if (prev && next && gap <= HOLD + 2 * EASE) {
+    return lerpFrame(from, to, smooth(Math.min(1, Math.max(0, (t - prevEnd) / gap))));
   }
   const since = t - prevEnd;
-  let frame = since < HOLD ? from : lerpFrame(from, restFrame, Math.min(1, (since - HOLD) / EASE));
+  let frame = since < HOLD ? from : lerpFrame(from, restFrame, smooth(Math.min(1, (since - HOLD) / EASE)));
   const until = next ? next.start - t : Infinity;
-  if (until < EASE) frame = lerpFrame(frame, firstFrame(next) || frame, 1 - until / EASE);
+  if (until < EASE) frame = lerpFrame(frame, to, smooth(1 - until / EASE));
   return frame;
 }
 
