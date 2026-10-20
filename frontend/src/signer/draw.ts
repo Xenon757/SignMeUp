@@ -138,8 +138,11 @@ export function drawFigure(ctx: CanvasRenderingContext2D, frame: Frame | null) {
   });
 }
 
-// Public-domain handshape images for fingerspelling, loaded once (static/img/fingerspelling).
+// Public-domain handshape images for fingerspelling (static/img/fingerspelling), loaded once.
+// Each is a black outline on a transparent background; a copy recoloured to the figure's hand
+// outline colour is kept so the letters match the figure's style.
 const letterImages: Record<string, HTMLImageElement> = {};
+const tintedLetters: Record<string, HTMLCanvasElement> = {};
 function letterImage(ch: string) {
   if (!letterImages[ch]) {
     letterImages[ch] = new Image();
@@ -149,27 +152,105 @@ function letterImage(ch: string) {
 }
 export const preloadLetters = () => [...'abcdefghijklmnopqrstuvwxyz'].forEach(letterImage);
 
-/** A fingerspelled word: its letter handshapes side by side, with the word underneath. */
-export function drawSpelling(ctx: CanvasRenderingContext2D, word: string) {
+function tintedLetter(ch: string): HTMLCanvasElement | null {
+  if (tintedLetters[ch]) return tintedLetters[ch];
+  const img = letterImage(ch);
+  if (!img.complete || !img.naturalWidth) return null;
+  const c = document.createElement('canvas');
+  const scale = 240 / Math.max(img.naturalWidth, img.naturalHeight);
+  c.width = Math.round(img.naturalWidth * scale);
+  c.height = Math.round(img.naturalHeight * scale);
+  const g = c.getContext('2d')!;
+  g.drawImage(img, 0, 0, c.width, c.height);
+  g.globalCompositeOperation = 'source-in'; // keep the drawing's shape, change its colour
+  g.fillStyle = COLORS.handOutline;
+  g.fillRect(0, 0, c.width, c.height);
+  return (tintedLetters[ch] = c);
+}
+
+const ACCENT = '#2f6f5e';
+const easeOut = (k: number) => 1 - (1 - k) ** 3;
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/**
+ * A fingerspelled word, drawn over the figure. The letters' handshapes sit on skin-coloured
+ * cards in the figure's style, all visible at once so the word can be read, and the letter
+ * being spelled is raised and outlined, moving left to right through the word. `progress`
+ * (0..1) is how far through the word we are; `appear` (0..1) fades and slides the row in and
+ * out, and dims the figure behind it, so it doesn't pop on and off.
+ */
+export function drawSpelling(ctx: CanvasRenderingContext2D, word: string, progress: number, appear: number) {
   const { width: W, height: H } = ctx.canvas;
   const letters = word.toLowerCase().replace(/[^a-z]/g, '');
-  if (!letters) return;
-  const gap = W * 0.01;
-  const size = Math.min(H * 0.32, (W * 0.92 - gap * (letters.length - 1)) / letters.length);
-  const rowWidth = size * letters.length + gap * (letters.length - 1);
-  const x0 = (W - rowWidth) / 2;
-  const y = H * 0.3;
-  ctx.fillStyle = 'rgba(255,255,255,.94)';
-  ctx.fillRect(x0 - 16, y - 16, rowWidth + 32, size + 32);
+  if (!letters || appear <= 0) return;
+  const k = easeOut(Math.min(1, appear));
+  const n = letters.length;
+  const current = Math.min(n - 1, Math.floor(progress * n));
+
+  // Soften the figure behind the letters rather than covering it.
+  ctx.save();
+  ctx.globalAlpha = 0.45 * k;
+  ctx.fillStyle = '#fbfaf7';
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // Cards in one row, as large as fits; portrait like most handshapes.
+  const gap = W * 0.018;
+  const cardW = Math.min(W * 0.22, (W * 0.92 - gap * (n - 1)) / n);
+  const cardH = cardW * 1.25;
+  const rowW = cardW * n + gap * (n - 1);
+  const x0 = (W - rowW) / 2;
+  // Over the chest, below the face; slides up as it appears.
+  const y0 = Math.min(H * 0.64 - cardH / 2, H * 0.97 - cardH) + (1 - k) * H * 0.04;
+  const s = W / 900;
+
+  ctx.save();
+  ctx.globalAlpha = k;
   [...letters].forEach((ch, i) => {
-    const img = letterImage(ch);
-    if (img.complete && img.naturalWidth) ctx.drawImage(img, x0 + i * (size + gap), y, size, size);
+    const active = i === current;
+    const lift = active ? cardH * 0.06 : 0;
+    const grow = active ? 1.08 : 1;
+    const w = cardW * grow, h = cardH * grow;
+    const x = x0 + i * (cardW + gap) - (w - cardW) / 2;
+    const y = y0 - lift - (h - cardH) / 2;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(40, 22, 10, 0.25)';
+    ctx.shadowBlur = (active ? 16 : 8) * s;
+    ctx.shadowOffsetY = (active ? 6 : 3) * s;
+    roundRect(ctx, x, y, w, h, Math.min(w, h) * 0.14);
+    ctx.fillStyle = active ? '#fff7ee' : COLORS.palm;
+    ctx.fill();
+    ctx.restore();
+    roundRect(ctx, x, y, w, h, Math.min(w, h) * 0.14);
+    ctx.lineWidth = (active ? 5 : 2) * s;
+    ctx.strokeStyle = active ? ACCENT : 'rgba(107, 63, 34, 0.35)';
+    ctx.stroke();
+
+    // The handshape, fitted inside the card without stretching, above its letter.
+    const art = tintedLetter(ch);
+    const pad = w * 0.12;
+    const boxW = w - 2 * pad, boxH = h * 0.7 - pad;
+    if (art) {
+      const fit = Math.min(boxW / art.width, boxH / art.height);
+      const aw = art.width * fit, ah = art.height * fit;
+      ctx.globalAlpha = k * (active ? 1 : 0.75);
+      ctx.drawImage(art, x + (w - aw) / 2, y + pad + (boxH - ah) / 2, aw, ah);
+      ctx.globalAlpha = k;
+    }
+    ctx.fillStyle = active ? ACCENT : COLORS.handOutline;
+    ctx.font = `700 ${Math.round(h * 0.17)}px Poppins, system-ui, sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(ch.toUpperCase(), x + w / 2, y + h * 0.84);
   });
-  const cardW = W * 0.6;
-  const cardH = H * 0.14;
-  ctx.fillRect((W - cardW) / 2, H * 0.72, cardW, cardH);
-  ctx.fillStyle = COLORS.line;
-  ctx.font = `600 ${Math.round(H * 0.07)}px system-ui, sans-serif`;
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(word.toUpperCase(), W / 2, H * 0.79);
+  ctx.restore();
 }

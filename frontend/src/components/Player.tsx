@@ -4,6 +4,8 @@ import type { Clip } from '../signer/timeline';
 import { buildTimeline, captionAt, latestClip, optimalRate, restFrameOf, stateAt } from '../signer/timeline';
 import type { PoseClip, Segment } from '../types';
 
+const SPELL_FADE = 0.15; // seconds a fingerspelled word takes to fade in and out
+
 interface Props {
   src: string; // object URL of the uploaded file
   audioOnly: boolean;
@@ -124,7 +126,12 @@ export function Player({ src, audioOnly, segments, poses }: Props) {
       const t = endedAt === null ? el.currentTime : (el.duration || 0) + ((performance.now() - endedAt) / 1000) * el.playbackRate;
       const { frame, clip } = stateAt(timeline, t, rest);
       drawFigure(ctx, frame);
-      if (clip?.kind === 'spell') drawSpelling(ctx, clip.label);
+      if (clip?.kind === 'spell') {
+        // Fade in over the first and out over the last SPELL_FADE seconds (real time).
+        const fade = SPELL_FADE * el.playbackRate;
+        const appear = Math.min((t - clip.start) / fade, (clip.start + clip.length - t) / fade, 1);
+        drawSpelling(ctx, clip.label, (t - clip.start) / clip.length, appear);
+      }
       const latest = latestClip(timeline, t);
       const caption = captionAt(segments, t);
       const key = `${caption?.start}|${latest?.start}|${clip?.start}`;
