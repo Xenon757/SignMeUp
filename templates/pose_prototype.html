@@ -30,7 +30,7 @@
 <body>
 <main>
   <h1>2D signing prototype</h1>
-  <p class="note">Upload a video. The right pane signs it with a figure animated from ASL Signbank sign videos. Each sign starts once its word has been said; when the signing falls behind, it speeds up (up to 2.5×) and catches up in pauses.</p>
+  <p class="note">Upload a video. The right pane signs it with a figure animated from ASL Signbank sign videos. Each sign starts once its word has been said; when the signing falls behind, it speeds up (up to 3×) and catches up in pauses.</p>
   <input id="file" type="file" accept="video/*,audio/*">
   <div id="status">No video yet.</div>
 
@@ -56,8 +56,8 @@
 // Timing rules. Dictionary clips are slower than conversational signing, so signs
 // play at BASE_SPEED, and faster (up to MAX_SPEED) the further behind the speech they are.
 const BASE_SPEED = 1.5;
-const MAX_SPEED = 2.5;
-const CATCH_UP = 0.5;          // extra speed per second behind
+const MAX_SPEED = 3;
+const CATCH_UP = 1.0;          // extra speed per second behind (full speed at 1.5 s behind)
 const BLEND = 0.12;            // seconds to blend one sign straight into the next
 const HOLD = 0.4;              // in a pause, hold the last sign this long...
 const EASE = 0.3;              // ...then ease to or from the resting pose over this long
