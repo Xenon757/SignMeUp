@@ -108,3 +108,16 @@ def test_words_from_stanza_flattens_multiword_tokens():
     words = words_from_stanza(sentence)
     assert [x.text for x in words] == ["do", "n't", "go"]
     assert words[2].lemma == "go"  # missing lemma falls back to the text
+
+
+def test_signs_remember_where_their_word_starts():
+    words = [Word(1, 2, "Aadi", "Aadi", "PROPN", "nsubj", start_char=0), Word(2, 0, "runs", "run", "VERB", "root", start_char=5)]
+    signs = sentence_to_signs(words)
+    assert [s.start_char for s in signs] == [5, 0, 0, 0, 0]  # RUN, then A-A-D-I share the name's position
+
+
+def test_words_from_stanza_keeps_token_position():
+    sentence = SimpleNamespace(tokens=[
+        SimpleNamespace(start_char=4, words=[SimpleNamespace(id=1, head=0, text="cats", lemma="cat", upos="NOUN", deprel="root")]),
+    ])
+    assert words_from_stanza(sentence)[0].start_char == 4

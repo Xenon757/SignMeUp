@@ -11,7 +11,7 @@ loading Stanza. `StanzaGlosser` is the thin layer that runs the real parser.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, List, Optional
 
 from num2words import num2words
@@ -27,6 +27,7 @@ class Word:
     lemma: str
     upos: str        # universal part-of-speech tag, e.g. NOUN, VERB, PROPN
     deprel: str      # dependency relation to the head, e.g. nsubj, obj
+    start_char: Optional[int] = None  # where the word starts in the sentence text
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,9 @@ class Sign:
     text: str         # the English word it came from
     gloss: str        # what to sign (a base word, a letter, or a number word)
     kind: str         # "sign", "fingerspell" or "number"
+    # Where the English word starts in the input text, used to find when it was spoken.
+    # Not part of a sign's identity, so it's left out of comparisons.
+    start_char: Optional[int] = field(default=None, compare=False)
 
 
 # (surface text, lemma) pairs that ASL leaves out entirely.
@@ -60,22 +64,22 @@ def order_words(words: Iterable[Word]) -> List[Word]:
     return sorted(words, key=lambda w: (w.head, w.index))
 
 
-def number_sign(text: str) -> Sign:
+def number_sign(text: str, start_char: Optional[int] = None) -> Sign:
     """Turn a numeral like '42' or '3.5' into a number sign ('forty-two')."""
     clean = text.strip(".,!?;:")
     try:
         if clean.isdigit():
-            return Sign(text, num2words(int(clean)), "number")
+            return Sign(text, num2words(int(clean)), "number", start_char)
         if "." in clean and clean.replace(".", "", 1).isdigit():
-            return Sign(text, num2words(float(clean)), "number")
+            return Sign(text, num2words(float(clean)), "number", start_char)
     except (ValueError, TypeError, OverflowError):
         pass
-    return Sign(text, clean or text, "sign")
+    return Sign(text, clean or text, "sign", start_char)
 
 
-def fingerspell(text: str) -> List[Sign]:
+def fingerspell(text: str, start_char: Optional[int] = None) -> List[Sign]:
     """Spell a word letter by letter (used for names)."""
-    return [Sign(ch, ch, "fingerspell") for ch in text.lower() if ch.isalpha()]
+    return [Sign(ch, ch, "fingerspell", start_char) for ch in text.lower() if ch.isalpha()]
 
 
 def word_to_signs(word: Word) -> List[Sign]:
@@ -85,9 +89,9 @@ def word_to_signs(word: Word) -> List[Sign]:
     if (text, lemma) in DROPPED_WORDS or word.upos in DROPPED_POS:
         return []
     if word.upos == "PROPN":
-        return fingerspell(text)
+        return fingerspell(text, word.start_char)
     if word.upos == "NUM":
-        return [number_sign(text)]
+        return [number_sign(text, word.start_char)]
     if word.upos not in SIGNED_POS:
         return []
     # Subject pronouns are usually implied in ASL; "that" as a connector is dropped.
@@ -95,7 +99,7 @@ def word_to_signs(word: Word) -> List[Sign]:
         return []
     if word.upos == "SCONJ" and lemma == "that":
         return []
-    return [Sign(text, lemma, "sign")]
+    return [Sign(text, lemma, "sign", word.start_char)]
 
 
 def sentence_to_signs(words: Iterable[Word]) -> List[Sign]:
@@ -150,6 +154,8 @@ def words_from_stanza(sentence) -> List[Word]:
             lemma=w.lemma or w.text,
             upos=w.upos,
             deprel=w.deprel,
+            # Words inside a contraction ("do" in "don't") share the token's position.
+            start_char=getattr(token, "start_char", None),
         )
         for token in sentence.tokens
         for w in token.words

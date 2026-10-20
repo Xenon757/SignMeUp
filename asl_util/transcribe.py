@@ -1,7 +1,8 @@
 """Speech-to-text with Whisper, returning timestamped segments.
 
-Timestamps matter: each segment knows when it was spoken, so its signs can be
-shown at the right moment in the video instead of spread evenly across it.
+Timestamps matter: each segment knows when it was spoken, and so does each
+word in it, so every sign can be shown after its word is said instead of
+spread evenly across the video.
 """
 
 from __future__ import annotations
@@ -9,9 +10,16 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SpokenWord:
+    start: float  # seconds from the start of the video
+    end: float
+    text: str
 
 
 @dataclass(frozen=True)
@@ -19,6 +27,7 @@ class Segment:
     start: float  # seconds from the start of the video
     end: float
     text: str
+    words: Tuple[SpokenWord, ...] = ()  # in order; may be empty if timing isn't available
 
 
 class TranscriptionError(RuntimeError):
@@ -76,12 +85,26 @@ class WhisperTranscriber:
         self._load()
         try:
             if self._backend == "faster-whisper":
-                raw, _info = self._model.transcribe(str(path), language="en")
-                segments = [Segment(s.start, s.end, s.text.strip()) for s in raw]
-            else:
-                result = self._model.transcribe(str(path), language="en")
+                raw, _info = self._model.transcribe(str(path), language="en", word_timestamps=True)
                 segments = [
-                    Segment(s["start"], s["end"], s["text"].strip()) for s in result["segments"]
+                    Segment(
+                        s.start,
+                        s.end,
+                        s.text.strip(),
+                        tuple(SpokenWord(w.start, w.end, w.word.strip()) for w in (s.words or [])),
+                    )
+                    for s in raw
+                ]
+            else:
+                result = self._model.transcribe(str(path), language="en", word_timestamps=True)
+                segments = [
+                    Segment(
+                        s["start"],
+                        s["end"],
+                        s["text"].strip(),
+                        tuple(SpokenWord(w["start"], w["end"], w["word"].strip()) for w in s.get("words", [])),
+                    )
+                    for s in result["segments"]
                 ]
         except Exception as exc:  # decoding errors, unsupported audio, etc.
             raise TranscriptionError(f"Could not transcribe {path.name}: {exc}") from exc

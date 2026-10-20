@@ -26,11 +26,17 @@ class FakeTranscriber:
 
 
 class FakeGlosser:
-    """Signs every word as itself, lowercased, without punctuation."""
+    """Signs every word as itself, lowercased, without punctuation, keeping its position."""
 
     def to_signs(self, text):
-        words = [t.strip(".,!?").lower() for t in text.split()]
-        return [Sign(t, t, "sign") for t in words if t]
+        signs, cursor = [], 0
+        for token in text.split():
+            at = text.index(token, cursor)
+            cursor = at + len(token)
+            word = token.strip(".,!?").lower()
+            if word:
+                signs.append(Sign(word, word, "sign", at))
+        return signs
 
 
 class FakePages:
