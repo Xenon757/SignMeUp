@@ -7,6 +7,8 @@ A user uploads a video. SignMeUp transcribes its audio with OpenAI's Whisper mod
 
 A second page, `/prototype`, signs the video with a 2D animated figure instead. Dictionary videos are too slow to keep up with speech (each one starts and ends with the hands at rest, and runs about 2.5 seconds), so the figure plays only the part of each sign where the hands are moving, and moves straight from one sign into the next. Each sentence is signed in one of two modes. When the speech is slow enough, each sign is lined up with its word (starting within half a second of it). In fast stretches, it works like closed captions instead: the sentence's signs start when the sentence starts and share the time until the next one. Signs play at 1.5×, and up to 3× when needed. Under the figure, the sentence being signed is shown with the current word highlighted. Words with no sign are fingerspelled, shown as a row of letter handshapes that is never sped up.
 
+Tracked points are smoothed over time (a Gaussian over about 3 frames), which cuts finger jitter by about two thirds on the test video's signs. Hands are drawn as solid shapes with fingers in depth order, and the palm is shaded differently from the back of the hand so palm orientation is visible. `/compare` plays any animated sign's Signbank video next to its animation, frame by frame, to check accuracy.
+
 An **Optimize for ASL** button slows the video down (keeping the audio's pitch) so the signs have more time. It picks the fastest speed at which 90% of sentences can be signed at a comfortable pace, and never goes below 0.5×. The 30-second test video is dense enough that it uses 0.5×; at that speed 10 of its 12 sentences line up with the speech, against 4 at normal speed.
 
 ## How the translation works
@@ -33,7 +35,7 @@ Words are only ever moved later in a sentence, never earlier. Signs appear once 
 | `asl_util/poses.py` | Turns a sign video into a 2D animation (MediaPipe tracking, trimming, shoulder-relative coordinates) and caches it |
 | `asl_util/data/` | ASL Signbank's gloss list (rebuilt with `scripts/build_signbank_index.py`) |
 | `asl_util/pipeline.py` | Video → timestamped signs |
-| `templates/`, `static/` | Web pages (`index.html`, and `pose_prototype.html` for the 2D figure), styles and fingerspelling images |
+| `templates/`, `static/` | Web pages (`index.html`; `pose_prototype.html` for the 2D figure; `compare.html` to check an animation against its video), `static/js/signer.js` (draws the figure), styles and fingerspelling images |
 | `scripts/` | Rebuild the gloss list; make animations from local video files |
 | `tests/` | Offline tests (Whisper and Stanza are replaced by fakes) |
 
