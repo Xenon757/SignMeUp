@@ -87,8 +87,10 @@ def signing_video():
 def test_build_clip_keeps_only_the_sign_itself_and_a_rest_frame():
     clip = build_clip("CAT", signing_video(), fps=24.0, width=400, height=200)
     assert len(clip["frames"]) == 8
-    wrist_ys = {round(f["pose"][6][1], 3) for f in clip["frames"]}
-    assert len(wrist_ys) == 1  # every kept frame is in signing position, none travelling
+    signing_y = clip["frames"][4]["pose"][6][1]
+    rest_y = clip["rest"]["pose"][6][1]
+    # Every kept frame is near signing height, none travelling (smoothing blends the ends a little).
+    assert all(abs(f["pose"][6][1] - signing_y) < 0.25 * (rest_y - signing_y) for f in clip["frames"])
     assert clip["rest"]["pose"][6][1] > clip["frames"][0]["pose"][6][1]  # wrist lower at rest
     assert clip["version"] == CLIP_VERSION
 
@@ -188,3 +190,29 @@ def test_store_lists_its_animations(tmp_path):
     poses = store(tmp_path, FakeTools())
     poses.ensure(1037, "CATf", "https://example/cat.mp4")
     assert poses.animations() == [{"id": 1037, "gloss": "CATf", "video": "https://example/cat.mp4"}]
+
+
+def test_smoothing_reduces_wobble_but_keeps_steady_points():
+    from asl_util.poses import smooth_over_time
+    wobble = [0.5 + (0.02 if i % 2 else -0.02) for i in range(12)]
+    frames = [{"pose": None, "leftHand": None, "face": None, "rightHand": [[0.4, y, 0.0]] * 21} for y in wobble]
+    smooth_over_time(frames)
+    ys = [f["rightHand"][0][1] for f in frames]
+    assert max(ys[3:-3]) - min(ys[3:-3]) < 0.01  # was 0.04
+    steady = [{"pose": None, "leftHand": None, "face": None, "rightHand": [[0.4, 0.5, 0.1]] * 21} for _ in range(8)]
+    smooth_over_time(steady)
+    assert all(abs(f["rightHand"][0][1] - 0.5) < 1e-9 and abs(f["rightHand"][0][2] - 0.1) < 1e-9 for f in steady)
+
+
+def test_smoothing_leaves_untracked_frames_alone():
+    from asl_util.poses import smooth_over_time
+    frames = [frame(right_hand=hand(0.4, 0.5)), frame(), frame(right_hand=hand(0.4, 0.6))]
+    smooth_over_time(frames)
+    assert frames[1]["rightHand"] is None
+    assert frames[0]["rightHand"][0] == [0.4, 0.5]  # a run of one frame is left as is
+
+
+def test_hand_depth_is_kept_in_body_space():
+    f = frame(right_hand=[[0.4, 0.5, -0.02]] * 21)
+    body = to_body_space([f], width=400, height=200)[0]
+    assert body["rightHand"][0][2] == round(-0.02 * 400 / 80, 3)  # same unit as x: shoulder widths

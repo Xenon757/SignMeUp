@@ -59,6 +59,14 @@ def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, me
         # Animations already made, for the comparison page.
         return flask.jsonify(poses.animations())
 
+    @app.get("/poses/<int:entry_id>.mp4")
+    def pose_video(entry_id: int):
+        # The source video of an animated sign, served locally so the browser can seek in it.
+        path = poses.video_path(entry_id)
+        if path is None:
+            return error("No video for this sign.", 404)
+        return flask.send_file(path, mimetype="video/mp4", conditional=True, max_age=86400)
+
     @app.get("/poses/<int:entry_id>.json")
     def pose(entry_id: int):
         # Only animations already made during an upload are served; this never starts tracking.

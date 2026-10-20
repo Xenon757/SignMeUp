@@ -59,7 +59,8 @@ async function load() {
 
 async function show(id) {
   clip = await fetch(`/poses/${id}.json?nocache=${Date.now()}`).then(r => r.json());
-  video.src = clip.video;
+  clip.id = id;
+  video.src = `/poses/${id}.mp4`;  // a local copy: Signbank's own server doesn't allow seeking
   video.playbackRate = Number(document.getElementById('speed').value);
 }
 

@@ -156,3 +156,10 @@ def test_compare_page_and_animation_list(client):
     upload(client)
     listed = client.get("/poses/").get_json()
     assert [a["gloss"] for a in listed] == ["HELLO"]
+
+
+def test_animated_sign_video_is_served_locally_and_seekable(client):
+    upload(client)
+    res = client.get("/poses/482.mp4", headers={"Range": "bytes=0-1"})
+    assert res.status_code == 206  # partial content: the browser can seek
+    assert client.get("/poses/999.mp4").status_code == 404

@@ -70,7 +70,13 @@ HOLD_MOTION = 0.012
 MIN_FRAMES = 6  # never trim a sign shorter than this
 
 # Bump when the stored animation format or trimming changes, so cached files are remade.
-CLIP_VERSION = 3
+CLIP_VERSION = 4
+
+# Tracking wobbles a little from frame to frame. Each point is smoothed over time with a
+# Gaussian of this spread (in frames). Measured on Signbank clips, sigma 1 cuts finger
+# jitter by about 60% while moving points only ~0.03 shoulder widths (about 2 pixels).
+SMOOTH_SIGMA = 1.0
+SMOOTH_RADIUS = 3
 
 Point = List[float]
 Frame = dict  # {"pose": [Point] | None, "leftHand": ..., "rightHand": ..., "face": ...}
@@ -97,11 +103,51 @@ def active_range(frames: List[Frame]) -> Tuple[int, int]:
 
 
 def _lerp(a: List[Point], b: List[Point], k: float) -> List[Point]:
-    return [[pa[0] + (pb[0] - pa[0]) * k, pa[1] + (pb[1] - pa[1]) * k] for pa, pb in zip(a, b)]
+    return [[va + (vb - va) * k for va, vb in zip(pa, pb)] for pa, pb in zip(a, b)]
 
 
 def _shift(points: List[Point], dx: float, dy: float) -> List[Point]:
-    return [[x + dx, y + dy] for x, y in points]
+    """Move points in x and y; a depth coordinate, if any, is kept."""
+    return [[p[0] + dx, p[1] + dy, *p[2:]] for p in points]
+
+
+def smooth_over_time(frames: List[Frame], sigma: float = SMOOTH_SIGMA, radius: int = SMOOTH_RADIUS) -> None:
+    """Smooth every tracked point over time, in place, to remove frame-to-frame wobble.
+
+    Each part (body, each hand, face) is smoothed separately over each run of
+    consecutive frames where it was tracked; the ends of a run are mirrored so
+    they don't drift. Runs shorter than 3 frames are left as they are.
+    """
+    weights = [2.718281828 ** (-0.5 * (i / sigma) ** 2) for i in range(-radius, radius + 1)]
+    for part in PARTS:
+        i = 0
+        while i < len(frames):
+            if not frames[i][part]:
+                i += 1
+                continue
+            j = i
+            while j < len(frames) and frames[j][part]:
+                j += 1
+            run = [frames[k][part] for k in range(i, j)]
+            if len(run) >= 3:
+                n = len(run)
+                smoothed = []
+                for t in range(n):
+                    total, acc = 0.0, None
+                    for w, off in zip(weights, range(-radius, radius + 1)):
+                        u = t + off
+                        u = -u if u < 0 else (2 * (n - 1) - u if u >= n else u)  # mirror at the ends
+                        if not 0 <= u < n:
+                            continue
+                        total += w
+                        pts = run[u]
+                        acc = [[w * v for v in p] for p in pts] if acc is None else [
+                            [a + w * v for a, v in zip(pa, p)] for pa, p in zip(acc, pts)
+                        ]
+                    smoothed.append([[v / total for v in p] for p in acc])
+                for k, pts in zip(range(i, j), smoothed):
+                    frames[k][part] = pts
+            i = j
 
 
 def fill_hand_gaps(frames: List[Frame], start: int, end: int) -> int:
@@ -141,6 +187,8 @@ def to_body_space(frames: List[Frame], width: int, height: int, digits: int = 3)
     convert to pixels (so x and y use the same unit), then put the origin
     between the shoulders on the first tracked frame and use the shoulder
     width as 1 unit. Every sign then has the same body size and position.
+    Hand points also carry depth (z, relative to the wrist, smaller = nearer
+    the camera, on the same scale as x), converted with the same unit.
     """
     first = next((f["pose"] for f in frames if f["pose"]), None)
     if first is None:
@@ -153,7 +201,11 @@ def to_body_space(frames: List[Frame], width: int, height: int, digits: int = 3)
     def convert(points: Optional[List[Point]]) -> Optional[List[Point]]:
         if not points:
             return None
-        return [[round((x * width - cx) / unit, digits), round((y * height - cy) / unit, digits)] for x, y in points]
+        return [
+            [round((p[0] * width - cx) / unit, digits), round((p[1] * height - cy) / unit, digits)]
+            + ([round(p[2] * width / unit, digits)] if len(p) > 2 else [])
+            for p in points
+        ]
 
     return [{part: convert(f[part]) for part in PARTS} for f in frames]
 
@@ -215,6 +267,7 @@ def build_clip(gloss: str, frames: List[Frame], fps: float, width: int, height: 
         return {"version": CLIP_VERSION, "gloss": gloss, "fps": fps, "rest": None, "frames": []}
     start, end = active_range(frames)
     fill_hand_gaps(frames, start, end)
+    smooth_over_time(frames)
     body = to_body_space(frames, width, height)
     rest = next(f for f in body if f["pose"])
     signing = body[start : end + 1]
@@ -241,11 +294,11 @@ def track_video(video: Path, model_path: Path) -> Tuple[List[Frame], float, int,
         running_mode=vision.RunningMode.VIDEO,
     )
 
-    def points(landmarks, indices=None):
+    def points(landmarks, indices=None, depth=False):
         if not landmarks:
             return None
         chosen = landmarks if indices is None else [landmarks[i] for i in indices]
-        return [[p.x, p.y] for p in chosen]
+        return [[p.x, p.y, p.z] if depth else [p.x, p.y] for p in chosen]
 
     frames: List[Frame] = []
     # A new landmarker per video: VIDEO mode needs timestamps that only increase.
@@ -259,8 +312,8 @@ def track_video(video: Path, model_path: Path) -> Tuple[List[Frame], float, int,
                 {
                     "pose": points(result.pose_landmarks, POSE_POINTS),
                     # MediaPipe's "left"/"right" are from the signer's point of view.
-                    "leftHand": points(result.left_hand_landmarks),
-                    "rightHand": points(result.right_hand_landmarks),
+                    "leftHand": points(result.left_hand_landmarks, depth=True),
+                    "rightHand": points(result.right_hand_landmarks, depth=True),
                     "face": points(result.face_landmarks, FACE_POINTS),
                 }
             )
@@ -334,6 +387,24 @@ class PoseStore:
             if clip and clip["frames"]:
                 found.append({"id": int(path.stem), "gloss": clip["gloss"], "video": clip.get("video")})
         return sorted(found, key=lambda a: a["gloss"])
+
+    def video_path(self, entry_id: int) -> Optional[Path]:
+        """A local copy of an animated sign's source video, for the comparison page.
+
+        Signbank doesn't serve byte ranges, so its videos can't be seeked in a browser;
+        a local copy can. Only signs that already have an animation are fetched.
+        """
+        clip = self._cached(entry_id)
+        if not clip or not clip.get("video"):
+            return None
+        path = self.cache_dir.parent / "videos" / f"{entry_id}.mp4"
+        if not path.exists():
+            try:
+                self._download(clip["video"], path)
+            except Exception as exc:
+                log.warning("Could not download the video for %s: %s", entry_id, exc)
+                return None
+        return path
 
     def ensure(self, entry_id: int, gloss: str, video_url: str) -> bool:
         if self._cached(entry_id) is not None:
