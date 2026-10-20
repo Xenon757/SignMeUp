@@ -15,7 +15,7 @@
     @media (max-width: 800px) { .panes { grid-template-columns: 1fr; } }
     .pane { background: var(--card); border-radius: 12px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
     video, canvas { width: 100%; display: block; border-radius: 8px; background: #000; }
-    canvas { background: #fbfaf7; aspect-ratio: 4 / 3; }
+    canvas { background: #fbfaf7; aspect-ratio: 1 / 1; }
     #signing { margin-top: 10px; font-size: 20px; line-height: 1.5; min-height: 60px; }
     #signing mark { background: var(--accent); color: #fff; border-radius: 6px; padding: 1px 5px; }
     #stats { display: block; text-align: right; min-height: 18px; }
@@ -51,7 +51,7 @@
       <div class="line"><span class="tag">Spoken</span> <span id="spoken"></span></div>
     </div>
     <div class="pane">
-      <canvas id="canvas" width="1200" height="900"></canvas>
+      <canvas id="canvas" width="1000" height="1000"></canvas>
       <div id="signing" aria-live="polite"></div>
       <span id="stats"><span id="speed"></span> <span id="lag"></span></span>
     </div>
