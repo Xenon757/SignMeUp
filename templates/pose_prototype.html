@@ -30,7 +30,7 @@
 <body>
 <main>
   <h1>2D signing prototype</h1>
-  <p class="note">Upload a video. The right pane signs it with a figure animated from ASL Signbank sign videos. Each sign starts once its word has been said; when the signing falls behind, it speeds up (up to 3×) and catches up in pauses.</p>
+  <p class="note">Upload a video. The right pane signs it with a figure animated from ASL Signbank sign videos. Like closed captions, it goes sentence by sentence: each sentence is signed while it is spoken, speeding up (up to 3×) when it has many signs.</p>
   <input id="file" type="file" accept="video/*,audio/*">
   <div id="status">No video yet.</div>
 
@@ -53,11 +53,14 @@
 </main>
 
 <script>
-// Timing rules. Dictionary clips are slower than conversational signing, so signs
-// play at BASE_SPEED, and faster (up to MAX_SPEED) the further behind the speech they are.
+// Timing rules. Like closed captions, signing goes sentence by sentence: a sentence's
+// signs start when it starts and share the time until the next sentence. Dictionary
+// clips are slower than conversational signing, so signs play at BASE_SPEED, and
+// faster (up to MAX_SPEED) when a sentence has more signs than time.
 const BASE_SPEED = 1.5;
 const MAX_SPEED = 3;
-const CATCH_UP = 1.0;          // extra speed per second behind (full speed at 1.5 s behind)
+const LAST_SENTENCE_EXTRA = 1.0;  // seconds the last sentence may run past the speech
+const CAPTION_LINGER = 1.5;       // keep a caption up this long after its sentence ends
 const BLEND = 0.12;            // seconds to blend one sign straight into the next
 const HOLD = 0.4;              // in a pause, hold the last sign this long...
 const EASE = 0.3;              // ...then ease to or from the resting pose over this long
@@ -124,37 +127,42 @@ async function loadPoses(segments) {
 // Viewers only need the sign itself, so show THIRTY and WALK.
 const signName = gloss => gloss.replace(/[a-z0-9]+$/, '') || gloss;
 
-// Turn the signs into clips on the video's clock. A sign never starts before its English
-// word has been said (sign.start). If the previous sign is still playing, it waits and
-// the next one plays faster to catch up; in pauses the signing catches up completely.
+// Turn each sentence's signs into clips on the video's clock.
 function buildTimeline(segments, poses) {
   const clips = [];
-  for (const seg of segments) {
+  let free = 0;  // when the previous sentence's signing finishes
+  segments.forEach((seg, i) => {
+    const own = [];
     for (const sign of seg.signs) {
       const pose = sign.media?.pose ? poses[sign.media.pose] : null;
-      const last = clips[clips.length - 1];
-      const spokenAt = sign.start ?? seg.start;
+      const last = own[own.length - 1];
       if (pose?.frames.length) {
-        clips.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps, spokenAt, text: seg.text });
-      } else if (sign.kind === 'fingerspell' && last?.kind === 'spell' && last.spokenAt === spokenAt) {
+        own.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps });
+      } else if (sign.kind === 'fingerspell' && last?.kind === 'spell' && last.word === sign.start) {
         last.label += sign.gloss.toUpperCase();   // letters of the same name
         last.natural += LETTER_TIME;
       } else if (sign.kind === 'fingerspell') {
-        clips.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + 0.2, spokenAt, text: seg.text });
+        own.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + 0.2, word: sign.start });
       } else {
-        clips.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: WORD_CARD_TIME, spokenAt, text: seg.text });
+        own.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: WORD_CARD_TIME });
       }
     }
-  }
+    if (!own.length) return;
 
-  let free = 0;  // when the previous sign (plus its blend) finishes
-  for (const clip of clips) {
-    const start = Math.max(clip.spokenAt, free);
-    const behind = start - clip.spokenAt;
-    const speed = Math.min(MAX_SPEED, BASE_SPEED + behind * CATCH_UP);
-    Object.assign(clip, { start, length: clip.natural / speed, speed, behind });
-    free = start + clip.length + BLEND / speed;
-  }
+    // The sentence has until the next sentence starts. If the previous one ran over,
+    // this one starts late and has less time, so it plays faster to catch up.
+    const start = Math.max(seg.start, free);
+    const windowEnd = segments[i + 1]?.start ?? seg.end + LAST_SENTENCE_EXTRA;
+    const needed = own.reduce((t, c) => t + c.natural, 0) + BLEND * (own.length - 1);
+    const speed = Math.min(MAX_SPEED, Math.max(BASE_SPEED, needed / Math.max(0.3, windowEnd - start)));
+    let t = start;
+    for (const clip of own) {
+      Object.assign(clip, { start: t, length: clip.natural / speed, speed, behind: start - seg.start, text: seg.text });
+      t += clip.length + BLEND / speed;
+      clips.push(clip);
+    }
+    free = t;
+  });
   return clips;
 }
 
@@ -309,6 +317,12 @@ function drawSpelling(clip, progress) {
   drawCard(clip.label.slice(0, i + 1));
 }
 
+// The sentence being spoken, shown like a closed caption until the next one starts.
+function caption(t) {
+  const current = segments.filter(s => s.start <= t).at(-1);
+  return current && t < current.end + CAPTION_LINGER ? current.text : '';
+}
+
 function fmt(t) { return `${t.toFixed(1)}s`; }
 
 // Signing can run past the end of the video, so after it ends the clock keeps going.
@@ -328,9 +342,10 @@ function tick() {
   const lag = clip ? clip.behind : 0;
   el('lag').textContent = lag > 0.3 ? `· ${lag.toFixed(1)}s behind speech` : '';
   el('lag').className = lag > 0.3 ? 'behind' : '';
-  const seg = segments.find(s => t >= s.start && t < s.end);
-  el('spoken').textContent = seg ? seg.text : '';
-  el('signing').textContent = clip ? clip.text : '';
+  el('spoken').textContent = caption(t);
+  // The sentence of the latest sign started, so the line doesn't flicker between signs.
+  const latest = timeline.filter(c => c.start <= t).at(-1);
+  el('signing').textContent = latest && t < latest.start + latest.length + HOLD ? latest.text : '';
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);

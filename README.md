@@ -5,7 +5,7 @@ SignMeUp bridges the gap for deaf and hard-of-hearing viewers by turning English
 ## What it does
 A user uploads a video. SignMeUp transcribes its audio with OpenAI's Whisper model, keeping the time each phrase was spoken. Each phrase goes through an English-to-ASL translation step that applies ASL grammar rules. Each sign is shown over the video as a reference video from [ASL Signbank](https://aslsignbank.com), and fingerspelled names are shown letter by letter as handshape images.
 
-A second page, `/prototype`, signs the video with a 2D animated figure instead. Dictionary videos are too slow to keep up with speech (each one starts and ends with the hands at rest, and runs about 2.5 seconds), so the figure plays only the part of each sign where the hands are moving, moves straight from one sign into the next, and speeds up (from 1.5× to 3×) the further it falls behind. No sign starts before its word is said. If the signing still falls behind, it catches up during pauses, and the page shows the sentence being signed next to the one being spoken.
+A second page, `/prototype`, signs the video with a 2D animated figure instead. Dictionary videos are too slow to keep up with speech (each one starts and ends with the hands at rest, and runs about 2.5 seconds), so the figure plays only the part of each sign where the hands are moving, and moves straight from one sign into the next. Like closed captions, it works sentence by sentence: each sentence's signs start when the sentence starts and share the time until the next one, playing at 1.5× and up to 3× when a sentence has many signs. If a sentence still runs over, the next one starts a little late and catches up, and the page shows the sentence being signed next to the one being spoken.
 
 ## How the translation works
 ASL is not English word-for-word, so the text is parsed with [Stanza](https://stanfordnlp.github.io/stanza/) (part-of-speech tags, base word forms and dependency relations) and these rules are applied:
@@ -74,7 +74,7 @@ Settings (environment variables): `SIGNMEUP_WHISPER_MODEL` (default `tiny`), `SI
 }
 ```
 
-`media` is `null` when there is no video for a sign; the page then shows the gloss as text. `pose` is missing if the animation couldn't be made. `GET /poses/<id>.json` returns an animation made during an earlier upload: a `rest` frame and the signing `frames`, each with `pose` (9 body points), `leftHand`/`rightHand` (21 points each) and `face` (outline points), in shoulder widths from the point between the shoulders.
+There is one segment per sentence, timed from its first to its last word (Whisper's own segments can hold several sentences). A sign's `start` is when its English word was spoken. `media` is `null` when there is no video for a sign; the page then shows the gloss as text. `pose` is missing if the animation couldn't be made. `GET /poses/<id>.json` returns an animation made during an earlier upload: a `rest` frame and the signing `frames`, each with `pose` (9 body points), `leftHand`/`rightHand` (21 points each) and `face` (outline points), in shoulder widths from the point between the shoulders.
 
 Errors return `{"error": "..."}` with status 400 (no file), 413 (too large), 415 (unsupported type) or 422 (no speech found or the audio couldn't be transcribed).
 
@@ -120,5 +120,5 @@ This fork continues the project after the hackathon. Changes so far:
 - Added offline tests
 - Replaced the ASL-LEX handshape image (which showed only the hand shape, not the sign) with ASL Signbank sign videos, and added public-domain fingerspelling images
 - Added a 2D animated signer (prototype page) built from the Signbank videos with MediaPipe, paced to keep up with speech
-- Timed each sign by when its word is spoken (Whisper word timestamps), so no sign appears before its word is said
+- Timed each sentence and sign with Whisper's word timestamps, and sign sentence by sentence like closed captions
 - Replaced the word-order rule: spoken order, with question words moved to the end of questions
