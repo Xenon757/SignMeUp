@@ -74,7 +74,7 @@ Settings (environment variables): `SIGNMEUP_WHISPER_MODEL` (default `tiny`), `SI
 }
 ```
 
-There is one segment per sentence, timed from its first to its last word (Whisper's own segments can hold several sentences). A sign's `start` is when its English word was spoken. `media` is `null` when there is no video for a sign; the page then shows the gloss as text. `pose` is missing if the animation couldn't be made. `GET /poses/<id>.json` returns an animation made during an earlier upload: a `rest` frame and the signing `frames`, each with `pose` (9 body points), `leftHand`/`rightHand` (21 points each) and `face` (outline points), in shoulder widths from the point between the shoulders.
+There is one segment per sentence, timed from its first to its last word (Whisper's own segments can hold several sentences). A sign's `start` is when its English word was spoken, and `start_char` is where that word starts in the sentence's `text`. `media` is `null` when there is no video for a sign; the page then shows the gloss as text. `pose` is missing if the animation couldn't be made. `GET /poses/<id>.json` returns an animation made during an earlier upload: a `rest` frame and the signing `frames`, each with `pose` (9 body points), `leftHand`/`rightHand` (21 points each) and `face` (outline points), in shoulder widths from the point between the shoulders.
 
 Errors return `{"error": "..."}` with status 400 (no file), 413 (too large), 415 (unsupported type) or 422 (no speech found or the audio couldn't be transcribed).
 

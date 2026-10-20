@@ -16,8 +16,9 @@
     .pane { background: var(--card); border-radius: 12px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
     video, canvas { width: 100%; display: block; border-radius: 8px; background: #000; }
     canvas { background: #fbfaf7; aspect-ratio: 4 / 3; }
-    .caption { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; min-height: 28px; }
-    #gloss { font-size: 22px; font-weight: 700; letter-spacing: .02em; }
+    #signing { margin-top: 10px; font-size: 20px; line-height: 1.5; min-height: 60px; }
+    #signing mark { background: var(--accent); color: #fff; border-radius: 6px; padding: 1px 5px; }
+    #stats { display: block; text-align: right; min-height: 18px; }
     #stats { font-size: 13px; color: var(--muted); }
     #lag.behind { color: #b45309; font-weight: 600; }
     #status { margin: 12px 0; font-size: 14px; color: var(--muted); }
@@ -41,11 +42,8 @@
     </div>
     <div class="pane">
       <canvas id="canvas" width="1200" height="900"></canvas>
-      <div class="caption">
-        <span id="gloss"></span>
-        <span id="stats"><span id="speed"></span> <span id="lag"></span></span>
-      </div>
-      <div class="line"><span class="tag">Signing</span> <span id="signing"></span></div>
+      <div id="signing" aria-live="polite"></div>
+      <span id="stats"><span id="speed"></span> <span id="lag"></span></span>
     </div>
   </div>
 
@@ -137,14 +135,14 @@ function buildTimeline(segments, poses) {
       const pose = sign.media?.pose ? poses[sign.media.pose] : null;
       const last = own[own.length - 1];
       if (pose?.frames.length) {
-        own.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps });
+        own.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps, char: sign.start_char });
       } else if (sign.kind === 'fingerspell' && last?.kind === 'spell' && last.word === sign.start) {
         last.label += sign.gloss.toUpperCase();   // letters of the same name
         last.natural += LETTER_TIME;
       } else if (sign.kind === 'fingerspell') {
-        own.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + 0.2, word: sign.start });
+        own.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + 0.2, word: sign.start, char: sign.start_char });
       } else {
-        own.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: WORD_CARD_TIME });
+        own.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: WORD_CARD_TIME, char: sign.start_char });
       }
     }
     if (!own.length) return;
@@ -323,6 +321,25 @@ function caption(t) {
   return current && t < current.end + CAPTION_LINGER ? current.text : '';
 }
 
+// Show the sentence being signed with the English word for the current sign highlighted.
+// Only touches the page when the sentence or word changes, not on every frame.
+let shown = null;
+function showSigning(clip) {
+  const key = clip ? `${clip.text}|${clip.char}` : '';
+  if (key === shown) return;
+  shown = key;
+  const box = el('signing');
+  box.replaceChildren();
+  if (!clip) return;
+  const text = clip.text;
+  const at = clip.char;
+  const word = at == null ? null : text.slice(at).match(/^[\w'’-]+/);
+  if (!word) { box.textContent = text; return; }
+  const mark = document.createElement('mark');
+  mark.textContent = word[0];
+  box.append(text.slice(0, at), mark, text.slice(at + word[0].length));
+}
+
 function fmt(t) { return `${t.toFixed(1)}s`; }
 
 // Signing can run past the end of the video, so after it ends the clock keeps going.
@@ -337,15 +354,14 @@ function tick() {
   draw(frame);
   if (clip?.kind === 'spell') drawSpelling(clip, (t - clip.start) / clip.length);
   else if (clip?.kind === 'word') drawCard(clip.label);
-  el('gloss').textContent = clip ? clip.label : '';
   el('speed').textContent = clip ? `${clip.speed.toFixed(1)}× speed` : '';
   const lag = clip ? clip.behind : 0;
   el('lag').textContent = lag > 0.3 ? `· ${lag.toFixed(1)}s behind speech` : '';
   el('lag').className = lag > 0.3 ? 'behind' : '';
   el('spoken').textContent = caption(t);
-  // The sentence of the latest sign started, so the line doesn't flicker between signs.
+  // The latest sign started, so the highlight stays put between signs instead of flickering.
   const latest = timeline.filter(c => c.start <= t).at(-1);
-  el('signing').textContent = latest && t < latest.start + latest.length + HOLD ? latest.text : '';
+  showSigning(latest && t < latest.start + latest.length + HOLD ? latest : null);
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);

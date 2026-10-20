@@ -44,7 +44,7 @@ def test_each_sign_starts_when_its_word_was_spoken():
     signs = out["segments"][0]["signs"]
     # ASL order puts SLEEP first, but it can't be shown before "sleeping" is said at 1.8s.
     assert [(s["gloss"], s["start"]) for s in signs] == [("sleep", 1.8), ("cat", 1.2)]
-    assert "start_char" not in signs[0]
+    assert [s["start_char"] for s in signs] == [11, 4]  # where "sleeping" and "cat" are in the text
 
 
 def test_signs_fall_back_to_segment_start_without_word_timing():

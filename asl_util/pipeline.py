@@ -82,11 +82,12 @@ def translate_video(
 
     Returns a JSON-ready dict:
       transcript: the full English transcript
-      segments:   one per sentence: [{start, end, text, signs: [{text, gloss, kind, start, media}]}]
+      segments:   one per sentence: [{start, end, text, signs: [{text, gloss, kind, start, start_char, media}]}]
       result:     every gloss joined by spaces (what the current page displays)
 
-    A sign's `start` is when its English word was spoken. Signs are in ASL
-    order, which isn't always the order the words were said.
+    A sign's `start` is when its English word was spoken, and `start_char`
+    where that word starts in the segment's text (so a page can highlight it).
+    Signs are in ASL order, which isn't always the order the words were said.
 
     `media` is what to show for a sign (a video or image), or None if there is
     nothing to show; it is only added when a media finder is passed in.
@@ -101,7 +102,7 @@ def translate_video(
         out_signs = []
         for sign in signs:
             out = asdict(sign)
-            out["start"] = round(spoken_at(out.pop("start_char"), positions, seg.start), 2)
+            out["start"] = round(spoken_at(out["start_char"], positions, seg.start), 2)
             out_signs.append(out)
         out_segments.append(
             {
