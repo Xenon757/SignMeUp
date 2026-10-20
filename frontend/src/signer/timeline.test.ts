@@ -89,3 +89,24 @@ describe('timeline', () => {
     expect(captionAt(segs, 5.5)?.text).toBe('two');
   });
 });
+
+describe('resting hands', () => {
+  const pose = [[0, -0.6], [0.5, 0], [-0.5, 0], [0.6, 0.8], [-0.6, 0.8], [0.6, 1.6], [-0.6, 1.6], [0.3, 1.7], [-0.3, 1.7]];
+  const hand = (x: number, y: number) => Array.from({ length: 21 }, (_, i) => [x + (i % 5) * 0.02, y - (i >= 9 ? 0.2 : 0.05)]);
+  const signing: Frame = { pose, leftHand: null, rightHand: hand(-0.2, 0.2), face: null };
+  const rest: Frame = { pose, leftHand: null, rightHand: null, face: null };
+
+  it('gives a rest frame hands that hang from its wrists', () => {
+    const settled = lerpFrame(signing, rest, 1)!;
+    expect(settled.rightHand![0]).toEqual(pose[6]); // wrist on the arm's wrist
+    expect(settled.rightHand![9][1]).toBeGreaterThan(pose[6][1]); // fingers point down the forearm
+    expect(settled.leftHand![0]).toEqual(pose[5]); // never tracked: a relaxed hand hangs there instead
+    expect(settled.leftHand![9][1]).toBeGreaterThan(pose[5][1]);
+  });
+
+  it('moves the hand smoothly to rest instead of jumping', () => {
+    const steps = [0, 0.25, 0.5, 0.75, 1].map(k => lerpFrame(signing, rest, k)!.rightHand![0][1]);
+    for (let i = 1; i < steps.length; i++) expect(steps[i]).toBeGreaterThan(steps[i - 1]);
+    expect(steps[4] - steps[3]).toBeLessThan(0.6); // no snap at the end
+  });
+});

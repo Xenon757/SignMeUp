@@ -50,7 +50,7 @@ export function SignPreview() {
       if (t < ease) frame = lerpFrame(clip.rest, clip.frames[0], s(t / ease));
       else if (t < ease + lengths[i]) frame = frameAt(clip.frames, (t - ease) / lengths[i]);
       else if (t < 2 * ease + lengths[i]) frame = lerpFrame(clip.frames.at(-1)!, clip.rest, s((t - ease - lengths[i]) / ease));
-      else frame = clip.rest;
+      else frame = lerpFrame(clip.frames.at(-1)!, clip.rest, 1); // at rest, hands hanging at the sides
       drawFigure(ctx, frame);
       const name = signName(clip.gloss);
       if (name !== shown) { shown = name; setLabel(name); }
