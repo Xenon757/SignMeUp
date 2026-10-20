@@ -34,7 +34,7 @@ CAT_SENTENCE = [
 
 def test_full_sentence_drops_articles_be_and_prepositions():
     signs = sentence_to_signs(CAT_SENTENCE)
-    assert gloss_string(signs) == "sleep cat mat"
+    assert gloss_string(signs) == "cat sleep mat"
 
 
 def test_verbs_use_their_base_form():
@@ -42,9 +42,44 @@ def test_verbs_use_their_base_form():
     assert signs == [Sign("running", "run", "sign")]
 
 
-def test_words_are_grouped_by_the_word_they_attach_to():
-    ordered = order_words(CAT_SENTENCE)
-    assert [x.text for x in ordered][:3] == ["sleeping", "The", "cat"]
+def test_words_keep_spoken_order():
+    shuffled = list(reversed(CAT_SENTENCE))
+    assert [x.text for x in order_words(shuffled)] == [x.text for x in CAT_SENTENCE]
+
+
+# "What is your name?"
+QUESTION = [
+    w(1, 4, "What", "what", "PRON", "nsubj"),
+    w(2, 4, "is", "be", "AUX", "cop"),
+    w(3, 4, "your", "your", "PRON", "nmod:poss"),
+    w(4, 0, "name", "name", "NOUN", "root"),
+    w(5, 4, "?", "?", "PUNCT", "punct"),
+]
+
+
+def test_question_word_moves_to_the_end_of_a_question():
+    assert gloss_string(sentence_to_signs(QUESTION)) == "your name what"
+
+
+def test_question_word_stays_put_when_not_a_question():
+    # "That's why I left."
+    sentence = [
+        w(1, 3, "That", "that", "PRON", "nsubj"),
+        w(2, 3, "'s", "be", "AUX", "cop"),
+        w(3, 0, "why", "why", "ADV", "root"),
+        w(4, 5, "I", "I", "PRON", "nsubj"),
+        w(5, 3, "left", "leave", "VERB", "advcl"),
+        w(6, 3, ".", ".", "PUNCT", "punct"),
+    ]
+    assert gloss_string(sentence_to_signs(sentence)) == "why leave"
+
+
+def test_reordering_only_moves_words_later():
+    # Signs are shown once their word is said, so no word may move before an earlier one.
+    for sentence in (CAT_SENTENCE, QUESTION):
+        ordered = order_words(sentence)
+        for before, after in zip(ordered, ordered[1:]):
+            assert after.index > before.index or after.lemma.lower() in {"what", "where", "when", "who", "why", "how", "which"}
 
 
 def test_subject_pronouns_are_dropped_but_object_pronouns_kept():
@@ -113,7 +148,7 @@ def test_words_from_stanza_flattens_multiword_tokens():
 def test_signs_remember_where_their_word_starts():
     words = [Word(1, 2, "Aadi", "Aadi", "PROPN", "nsubj", start_char=0), Word(2, 0, "runs", "run", "VERB", "root", start_char=5)]
     signs = sentence_to_signs(words)
-    assert [s.start_char for s in signs] == [5, 0, 0, 0, 0]  # RUN, then A-A-D-I share the name's position
+    assert [s.start_char for s in signs] == [0, 0, 0, 0, 5]  # A-A-D-I share the name's position, then RUN
 
 
 def test_words_from_stanza_keeps_token_position():
@@ -121,3 +156,9 @@ def test_words_from_stanza_keeps_token_position():
         SimpleNamespace(start_char=4, words=[SimpleNamespace(id=1, head=0, text="cats", lemma="cat", upos="NOUN", deprel="root")]),
     ])
     assert words_from_stanza(sentence)[0].start_char == 4
+
+
+def test_question_word_as_subject_is_not_dropped():
+    # "Who called?"
+    sentence = [w(1, 2, "Who", "who", "PRON", "nsubj"), w(2, 0, "called", "call", "VERB", "root"), w(3, 2, "?", "?", "PUNCT", "punct")]
+    assert gloss_string(sentence_to_signs(sentence)) == "call who"

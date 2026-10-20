@@ -55,13 +55,27 @@ DROPPED_POS = {"AUX", "DET", "ADP", "SYM", "X", "PART"}
 SIGNED_POS = {"NOUN", "VERB", "ADJ", "ADV", "PRON", "INTJ", "CCONJ", "SCONJ"}
 
 
-def order_words(words: Iterable[Word]) -> List[Word]:
-    """Order words by the word they attach to, then by position.
+# Question words that ASL usually signs at the end of a question.
+WH_WORDS = {"what", "where", "when", "who", "whom", "whose", "why", "how", "which"}
 
-    This groups each word with its dependents, a rough approximation of
-    ASL's topic-first word order kept from the original hackathon version.
+
+def order_words(words: Iterable[Word]) -> List[Word]:
+    """Put a sentence's words in signing order.
+
+    ASL's basic word order is subject-verb-object, like English, so words stay
+    in the order they were spoken. In a question, the question word moves to
+    the end ("What is your name?" -> YOUR NAME WHAT), as is common in ASL.
+
+    Words are only ever moved later, never earlier. Signs are shown as their
+    words are spoken, so moving a word earlier would make the signing wait
+    for it to be said.
     """
-    return sorted(words, key=lambda w: (w.head, w.index))
+    ordered = sorted(words, key=lambda w: w.index)
+    if not any(w.text == "?" for w in ordered):
+        return ordered
+    wh = [w for w in ordered if w.lemma.lower() in WH_WORDS]
+    rest = [w for w in ordered if w.lemma.lower() not in WH_WORDS]
+    return rest + wh
 
 
 def number_sign(text: str, start_char: Optional[int] = None) -> Sign:
@@ -95,7 +109,8 @@ def word_to_signs(word: Word) -> List[Sign]:
     if word.upos not in SIGNED_POS:
         return []
     # Subject pronouns are usually implied in ASL; "that" as a connector is dropped.
-    if word.upos == "PRON" and word.deprel == "nsubj":
+    # Question words like "what" are kept even as subjects: they carry the question.
+    if word.upos == "PRON" and word.deprel == "nsubj" and lemma not in WH_WORDS:
         return []
     if word.upos == "SCONJ" and lemma == "that":
         return []

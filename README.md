@@ -3,16 +3,19 @@
 SignMeUp bridges the gap for deaf and hard-of-hearing viewers by turning English captions into ASL subtitles, making stories, lessons, and conversations truly accessible to everyone.
 
 ## What it does
-A user uploads a video. SignMeUp transcribes its audio with OpenAI's Whisper model, keeping the time each phrase was spoken. Each phrase goes through an English-to-ASL translation step that reorders it and applies ASL grammar rules. Each sign is shown over the video as a reference video from [ASL Signbank](https://aslsignbank.com), and fingerspelled names are shown letter by letter as handshape images.
+A user uploads a video. SignMeUp transcribes its audio with OpenAI's Whisper model, keeping the time each phrase was spoken. Each phrase goes through an English-to-ASL translation step that applies ASL grammar rules. Each sign is shown over the video as a reference video from [ASL Signbank](https://aslsignbank.com), and fingerspelled names are shown letter by letter as handshape images.
 
 A second page, `/prototype`, signs the video with a 2D animated figure instead. Dictionary videos are too slow to keep up with speech (each one starts and ends with the hands at rest, and runs about 2.5 seconds), so the figure plays only the part of each sign where the hands are moving, blends straight from one sign into the next, and speeds up to 2.5× when a sentence has many signs. If the signing still falls behind, it catches up during pauses, and the page shows the sentence being signed next to the one being spoken.
 
 ## How the translation works
 ASL is not English word-for-word, so the text is parsed with [Stanza](https://stanfordnlp.github.io/stanza/) (part-of-speech tags, base word forms and dependency relations) and these rules are applied:
 
-- Articles, forms of "to be", auxiliaries and prepositions are dropped ("The cat is sleeping on the mat" → `SLEEP CAT MAT`).
+- Articles, forms of "to be", auxiliaries and prepositions are dropped ("The cat is sleeping on the mat" → `CAT SLEEP MAT`).
 - Words are signed in their base form ("running" → `RUN`).
-- Subject pronouns are dropped because ASL usually implies them.
+- Subject pronouns are dropped because ASL usually implies them. Question words are kept even as subjects ("Who called?" → `CALL WHO`).
+- Words keep their spoken order, since ASL's basic order is subject–verb–object like English. In a question, the question word moves to the end ("What is your name?" → `YOUR NAME WHAT`).
+
+Words are only ever moved later in a sentence, never earlier. Signs appear once their word has been spoken, so moving a word earlier would make the signing wait for it. (The original version grouped words by their parse, which often put a sentence's last word first and held up the whole sentence.)
 - Names are fingerspelled letter by letter.
 - Numerals become number words ("42" → `FORTY-TWO`).
 
@@ -117,3 +120,5 @@ This fork continues the project after the hackathon. Changes so far:
 - Added offline tests
 - Replaced the ASL-LEX handshape image (which showed only the hand shape, not the sign) with ASL Signbank sign videos, and added public-domain fingerspelling images
 - Added a 2D animated signer (prototype page) built from the Signbank videos with MediaPipe, paced to keep up with speech
+- Timed each sign by when its word is spoken (Whisper word timestamps), so no sign appears before its word is said
+- Replaced the word-order rule: spoken order, with question words moved to the end of questions
