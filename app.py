@@ -12,6 +12,7 @@ import flask
 from werkzeug.utils import secure_filename
 
 from asl_util.pipeline import translate_video
+from asl_util.poses import PoseStore
 from asl_util.signbank import GlossIndex, SignMedia, VideoResolver
 from asl_util.transcribe import TranscriptionError, WhisperTranscriber
 from asl_util.translate import StanzaGlosser
@@ -22,7 +23,7 @@ MAX_UPLOAD_MB = int(os.environ.get("SIGNMEUP_MAX_UPLOAD_MB", "200"))
 log = logging.getLogger("signmeup")
 
 
-def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, media=None) -> flask.Flask:
+def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, media=None, poses=None) -> flask.Flask:
     """Build the app. Tests pass in fake models so nothing heavy loads."""
     app = flask.Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
@@ -32,9 +33,11 @@ def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, me
     glosser = glosser or StanzaGlosser()
     uploads = Path(upload_dir or os.environ.get("SIGNMEUP_UPLOAD_DIR", tempfile.gettempdir())) / "signmeup"
     uploads.mkdir(parents=True, exist_ok=True)
-    # Sign videos are looked up on ASL Signbank once per sign and cached on disk.
+    # Sign videos are looked up on ASL Signbank once per sign, and turned into 2D pose
+    # animations the first time each sign is needed. Both are cached on disk.
     cache_dir = Path(os.environ.get("SIGNMEUP_CACHE_DIR", Path(tempfile.gettempdir()) / "signmeup-cache"))
-    media = media or SignMedia(GlossIndex.load(), VideoResolver(cache_dir / "signbank_videos.json"))
+    poses = poses or PoseStore(cache_dir / "poses")
+    media = media or SignMedia(GlossIndex.load(), VideoResolver(cache_dir / "signbank_videos.json"), poses)
 
     def error(message: str, status: int):
         return flask.jsonify({"error": message}), status
@@ -46,6 +49,13 @@ def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, me
     @app.get("/prototype")
     def pose_prototype():
         return flask.render_template("pose_prototype.html")
+
+    @app.get("/poses/<int:entry_id>.json")
+    def pose(entry_id: int):
+        # Only animations already made during an upload are served; this never starts tracking.
+        if not poses.has_animation(entry_id):
+            return error("No animation for this sign.", 404)
+        return flask.send_file(poses.path(entry_id), mimetype="application/json", max_age=86400)
 
     @app.get("/healthz")
     def healthz():

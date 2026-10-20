@@ -53,6 +53,22 @@ def test_upload_attaches_sign_media(client):
     assert aadi["media"] is None
 
 
+def test_upload_makes_pose_animation_and_serves_it(client):
+    hello = upload(client).get_json()["segments"][0]["signs"][0]
+    assert hello["media"]["pose"] == "/poses/482.json"
+    res = client.get("/poses/482.json")
+    assert res.status_code == 200
+    assert res.get_json()["gloss"] == "HELLO"
+    assert res.get_json()["frames"]
+
+
+def test_unknown_pose_is_404_and_does_not_start_tracking(client, poses):
+    res = client.get("/poses/999.json")
+    assert res.status_code == 404
+    assert "error" in res.get_json()
+    assert not poses.path(999).exists()
+
+
 def test_uploaded_file_is_deleted_after_processing(client, transcriber, upload_dir):
     upload(client)
     assert len(transcriber.seen_paths) == 1

@@ -3,6 +3,7 @@
 import pytest
 
 from app import create_app
+from asl_util.poses import PoseStore
 from asl_util.signbank import GlossIndex, SignMedia, VideoResolver, entry_page_url
 from asl_util.transcribe import Segment, TranscriptionError
 from asl_util.translate import Sign
@@ -50,10 +51,27 @@ class FakePages:
 HELLO_VIDEO = "https://aslsignbank.com/dictionary/protected_media/glossvideo/ASL/HE/HELLO-482.mp4"
 
 
-def fake_media():
+def fake_media(poses=None):
     """Signbank with one sign, HELLO, that has a video."""
     page = f'<video id="videoplayer" src="{HELLO_VIDEO.removeprefix("https://aslsignbank.com")}"></video>'
-    return SignMedia(GlossIndex({"HELLO": 482}), VideoResolver(fetch=FakePages({entry_page_url(482): page})))
+    return SignMedia(GlossIndex({"HELLO": 482}), VideoResolver(fetch=FakePages({entry_page_url(482): page})), poses)
+
+
+def fake_poses(cache_dir):
+    """A PoseStore whose 'tracking' returns a short clip with the right hand raised."""
+    rest = [[0.5, 0.2], [0.6, 0.4], [0.4, 0.4], [0.65, 0.6], [0.35, 0.6], [0.6, 0.9], [0.4, 0.9], [0.58, 0.9], [0.42, 0.9]]
+    raised = [p[:] for p in rest]
+    raised[6] = [0.4, 0.5]
+
+    def track(video, model):
+        frames = [{"pose": pose, "leftHand": None, "rightHand": None, "face": None} for pose in [rest] * 3 + [raised] * 3 + [rest] * 3]
+        return frames, 24.0, 400, 200
+
+    def download(url, dest):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"fake")
+
+    return PoseStore(cache_dir, cache_dir / "model.task", download=download, track=track)
 
 
 @pytest.fixture
@@ -67,9 +85,18 @@ def upload_dir(tmp_path):
 
 
 @pytest.fixture
-def client(transcriber, upload_dir):
+def poses(tmp_path):
+    return fake_poses(tmp_path / "poses")
+
+
+@pytest.fixture
+def client(transcriber, upload_dir, poses):
     app = create_app(
-        transcriber=transcriber, glosser=FakeGlosser(), upload_dir=str(upload_dir), media=fake_media()
+        transcriber=transcriber,
+        glosser=FakeGlosser(),
+        upload_dir=str(upload_dir),
+        media=fake_media(poses),
+        poses=poses,
     )
     app.config["TESTING"] = True
     return app.test_client()

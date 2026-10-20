@@ -15,9 +15,12 @@ import threading
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence, Tuple
 
 from .translate import Sign
+
+if TYPE_CHECKING:
+    from .poses import PoseStore
 
 GLOSS_FILE = Path(__file__).resolve().parent / "data" / "signbank_glosses.json"
 SITE = "https://aslsignbank.com"
@@ -142,11 +145,20 @@ class SignMedia:
     Fingerspelled letters use the bundled public-domain handshape images.
     Other signs use the first Signbank variant that has a video; signs with
     no match get None, and the page shows the gloss as text instead.
+    With a PoseStore, video signs also get a 2D pose animation ("pose").
     """
 
-    def __init__(self, index: GlossIndex, resolver: VideoResolver, max_variants: int = 3, workers: int = 4):
+    def __init__(
+        self,
+        index: GlossIndex,
+        resolver: VideoResolver,
+        poses: Optional["PoseStore"] = None,
+        max_variants: int = 3,
+        workers: int = 4,
+    ):
         self._index = index
         self._resolver = resolver
+        self._poses = poses
         self._max_variants = max_variants
         self._workers = workers
 
@@ -169,11 +181,14 @@ class SignMedia:
         for gloss, entry_id in self._index.candidates(word)[: self._max_variants]:
             url = self._resolver.video_url(entry_id)
             if url:
-                return {
+                media = {
                     "type": "video",
                     "url": url,
                     "gloss": gloss,
                     "page": entry_page_url(entry_id),
                     "source": "ASL Signbank (CC BY-NC-SA 4.0)",
                 }
+                if self._poses and self._poses.ensure(entry_id, gloss, url):
+                    media["pose"] = f"/poses/{entry_id}.json"
+                return media
         return None
