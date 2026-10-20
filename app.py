@@ -122,7 +122,7 @@ def create_app(
                 log.warning("Transcription failed: %s", exc)
                 raise JobFailed(str(exc)) from exc
             if not result["segments"]:
-                raise JobFailed("No speech was found in this video.")
+                raise JobFailed("No speech was found in this file.")
             return result
 
         job_id = jobs.submit(process, cleanup=lambda: path.unlink(missing_ok=True))
@@ -154,7 +154,7 @@ def create_app(
             path.unlink(missing_ok=True)
 
         if not result["segments"]:
-            return error("No speech was found in this video.", 422)
+            return error("No speech was found in this file.", 422)
         return flask.jsonify({"message": "File processed", "filename": secure_filename(file.filename), **result})
 
     @app.errorhandler(413)

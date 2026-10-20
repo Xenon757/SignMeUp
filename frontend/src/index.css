@@ -110,6 +110,21 @@ button.optimize[aria-pressed='true'] { background: var(--accent); color: var(--a
 .behind { color: var(--warn); font-weight: 600; }
 .summary { margin-top: 12px; font-size: 0.875rem; }
 
+/* Phones: the video and the figure must both be visible at once, so the figure gets the
+   space left under the video instead of the full width, and the controls take less room. */
+@media (max-width: 859px) {
+  main { padding-top: 12px; }
+  .result-head h2 { font-size: 1rem; }
+  .result-head, .player-controls { margin-bottom: 8px; gap: 8px; }
+  .player-controls .muted { font-size: 0.8125rem; }
+  .stage { gap: 10px; }
+  .pane { padding: 8px; }
+  .pane video { max-height: 30vh; }
+  .caption { margin-top: 6px; font-size: 0.9375rem; }
+  .signer-pane canvas { width: auto; height: min(42vh, calc(100vw - 48px)); margin: 0 auto; }
+  .signing { font-size: 1.0625rem; margin-top: 8px; min-height: 2.5em; }
+}
+
 /* Compare */
 .compare h1 { font-size: 1.75rem; margin: 0 0 6px; }
 .compare .controls { margin: 16px 0; }

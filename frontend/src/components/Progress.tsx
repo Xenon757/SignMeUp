@@ -15,7 +15,7 @@ interface Step {
 
 const STEPS: Step[] = [
   { key: 'uploading', label: 'Uploading' },
-  { key: 'queued', label: 'Waiting for another video to finish' },
+  { key: 'queued', label: 'Starting' }, // or waiting, if other uploads are ahead (see label())
   { key: 'transcribing', label: 'Transcribing the speech' },
   { key: 'translating', label: 'Translating to ASL' },
   { key: 'animating', label: 'Preparing sign animations', detail: 'Signs used for the first time take about a second each; after that they’re instant.' },
@@ -27,11 +27,17 @@ function current(activity: Activity): string {
   return activity.step;
 }
 
+function label(step: Step, activity: Activity): string {
+  // Every job is queued for a moment before it starts; only say "waiting" if others are ahead.
+  const ahead = activity.step === 'job' ? activity.job.ahead ?? 0 : 0;
+  if (step.key === 'queued' && ahead > 0) return `Waiting for ${ahead} other upload${ahead > 1 ? 's' : ''} to finish`;
+  return step.label;
+}
+
 function count(activity: Activity): string | null {
   if (activity.step === 'uploading') return `${Math.round(activity.fraction * 100)}%`;
   if (activity.step !== 'job') return null;
   const { job } = activity;
-  if (job.status === 'queued') return job.ahead ? `${job.ahead} ahead` : null;
   if (job.status === 'translating' && job.total) return `sentence ${Math.min(job.total, (job.done ?? 0) + 1)} of ${job.total}`;
   if (job.status === 'animating' && job.total) return `${job.done ?? 0} of ${job.total} words`;
   return null;
@@ -64,7 +70,7 @@ export function Progress({ activity, fileName }: { activity: Activity; fileName:
               <span className="marker" aria-hidden="true">{state === 'done' ? '✓' : ''}</span>
               <span className="step-text">
                 <span className="step-label">
-                  {step.label}
+                  {label(step, activity)}
                   {state === 'active' && count(activity) && <span className="step-count"> · {count(activity)}</span>}
                 </span>
                 {state === 'active' && step.detail && <span className="step-detail">{step.detail}</span>}

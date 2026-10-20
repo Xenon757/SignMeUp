@@ -56,12 +56,12 @@ def test_failed_job_shows_safe_message_and_still_cleans_up():
         raise RuntimeError("secret internal detail")
 
     def expected(report):
-        raise JobFailed("No speech was found in this video.")
+        raise JobFailed("No speech was found in this file.")
 
     a = runner.submit(boom, cleanup=lambda: cleaned.append("a"))
     b = runner.submit(expected, cleanup=lambda: cleaned.append("b"))
     assert "secret" not in wait_for(lambda: runner.status(a))["error"]
-    assert wait_for(lambda: runner.status(b))["error"] == "No speech was found in this video."
+    assert wait_for(lambda: runner.status(b))["error"] == "No speech was found in this file."
     assert cleaned == ["a", "b"]
 
 
@@ -93,7 +93,7 @@ def test_api_job_without_speech_ends_with_error(transcriber, client):
     transcriber.segments = []
     job_id = start(client).get_json()["id"]
     status = wait_for(lambda: client.get(f"/api/jobs/{job_id}").get_json())
-    assert status["status"] == "error" and status["error"] == "No speech was found in this video."
+    assert status["status"] == "error" and status["error"] == "No speech was found in this file."
 
 
 def test_api_unknown_job_is_404(client):
