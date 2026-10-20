@@ -31,7 +31,7 @@
 <body>
 <main>
   <h1>2D signing prototype</h1>
-  <p class="note">Upload a video. The right pane signs it with a figure animated from ASL Signbank sign videos. Like closed captions, it goes sentence by sentence: each sentence is signed while it is spoken, speeding up (up to 3×) when it has many signs.</p>
+  <p class="note">Upload a video. The right pane signs it with a figure animated from ASL Signbank sign videos. When the speech is slow enough, each sign lines up with its word; in fast stretches it signs the whole sentence while it is spoken, like closed captions, speeding up to 3×.</p>
   <input id="file" type="file" accept="video/*,audio/*">
   <div id="status">No video yet.</div>
 
@@ -51,12 +51,15 @@
 </main>
 
 <script>
-// Timing rules. Like closed captions, signing goes sentence by sentence: a sentence's
-// signs start when it starts and share the time until the next sentence. Dictionary
-// clips are slower than conversational signing, so signs play at BASE_SPEED, and
-// faster (up to MAX_SPEED) when a sentence has more signs than time.
+// Timing rules. Each sentence is signed in one of two modes:
+//  - aligned: when the speech is slow enough, each sign starts as its word is said;
+//  - sentence: in fast stretches, like closed captions, the sentence's signs start when
+//    it starts and share the time until the next sentence, whatever the word timing.
+// Dictionary clips are slower than conversational signing, so signs play at BASE_SPEED,
+// and faster (up to MAX_SPEED) when needed.
 const BASE_SPEED = 1.5;
 const MAX_SPEED = 3;
+const ALIGN_TOLERANCE = 0.5;      // a sign may start this many seconds after its word and still count as aligned
 const LAST_SENTENCE_EXTRA = 1.0;  // seconds the last sentence may run past the speech
 const CAPTION_LINGER = 1.5;       // keep a caption up this long after its sentence ends
 const BLEND = 0.12;            // seconds to blend one sign straight into the next
@@ -125,6 +128,38 @@ async function loadPoses(segments) {
 // Viewers only need the sign itself, so show THIRTY and WALK.
 const signName = gloss => gloss.replace(/[a-z0-9]+$/, '') || gloss;
 
+// Try to line each of a sentence's signs up with its word. Each sign starts when its word
+// is said (or when the previous sign ends) and speeds up, within MAX_SPEED, to be done
+// before the next sign's word. Returns null if a sign would start more than ALIGN_TOLERANCE
+// late or the sentence would run past windowEnd: the sentence is too fast to align.
+function tryAlign(own, from, windowEnd) {
+  const placed = [];
+  let free = from;
+  for (let k = 0; k < own.length; k++) {
+    const clip = own[k];
+    const start = Math.max(clip.word, free);
+    if (start - clip.word > ALIGN_TOLERANCE) return null;
+    const nextAt = k + 1 < own.length ? Math.max(own[k + 1].word, start) : windowEnd;
+    const room = nextAt - start - BLEND / BASE_SPEED;
+    const speed = Math.min(MAX_SPEED, Math.max(BASE_SPEED, clip.natural / Math.max(0.05, room)));
+    placed.push({ start, speed, length: clip.natural / speed, behind: start - clip.word });
+    free = start + clip.natural / speed + BLEND / speed;
+  }
+  return free <= windowEnd + ALIGN_TOLERANCE ? placed : null;
+}
+
+// Fit all of a sentence's signs, in order, between `from` and windowEnd.
+function packSentence(own, from, windowEnd, sentenceStart) {
+  const needed = own.reduce((t, c) => t + c.natural, 0) + BLEND * (own.length - 1);
+  const speed = Math.min(MAX_SPEED, Math.max(BASE_SPEED, needed / Math.max(0.3, windowEnd - from)));
+  let t = from;
+  return own.map(clip => {
+    const placed = { start: t, speed, length: clip.natural / speed, behind: from - sentenceStart };
+    t += placed.length + BLEND / speed;
+    return placed;
+  });
+}
+
 // Turn each sentence's signs into clips on the video's clock.
 function buildTimeline(segments, poses) {
   const clips = [];
@@ -134,32 +169,33 @@ function buildTimeline(segments, poses) {
     for (const sign of seg.signs) {
       const pose = sign.media?.pose ? poses[sign.media.pose] : null;
       const last = own[own.length - 1];
+      const word = sign.start ?? seg.start;  // when the sign's English word is said
       if (pose?.frames.length) {
-        own.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps, char: sign.start_char });
-      } else if (sign.kind === 'fingerspell' && last?.kind === 'spell' && last.word === sign.start) {
+        own.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps, word, char: sign.start_char });
+      } else if (sign.kind === 'fingerspell' && last?.kind === 'spell' && last.word === word) {
         last.label += sign.gloss.toUpperCase();   // letters of the same name
         last.natural += LETTER_TIME;
       } else if (sign.kind === 'fingerspell') {
-        own.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + 0.2, word: sign.start, char: sign.start_char });
+        own.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + 0.2, word, char: sign.start_char });
       } else {
-        own.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: UNSIGNED_WORD_TIME, char: sign.start_char });
+        own.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: UNSIGNED_WORD_TIME, word, char: sign.start_char });
       }
     }
     if (!own.length) return;
 
     // The sentence has until the next sentence starts. If the previous one ran over,
-    // this one starts late and has less time, so it plays faster to catch up.
-    const start = Math.max(seg.start, free);
+    // this one starts late and has less time.
+    const from = Math.max(seg.start, free);
     const windowEnd = segments[i + 1]?.start ?? seg.end + LAST_SENTENCE_EXTRA;
-    const needed = own.reduce((t, c) => t + c.natural, 0) + BLEND * (own.length - 1);
-    const speed = Math.min(MAX_SPEED, Math.max(BASE_SPEED, needed / Math.max(0.3, windowEnd - start)));
-    let t = start;
-    for (const clip of own) {
-      Object.assign(clip, { start: t, length: clip.natural / speed, speed, behind: start - seg.start, text: seg.text });
-      t += clip.length + BLEND / speed;
+    const aligned = tryAlign(own, free, windowEnd);
+    const placed = aligned || packSentence(own, from, windowEnd, seg.start);
+    const mode = aligned ? 'aligned' : 'sentence';
+    own.forEach((clip, k) => {
+      Object.assign(clip, placed[k], { mode, text: seg.text });
       clips.push(clip);
-    }
-    free = t;
+    });
+    const last = own[own.length - 1];
+    free = last.start + last.length + BLEND / last.speed;
   });
   return clips;
 }
@@ -353,7 +389,7 @@ function tick() {
   const { frame, clip } = stateAt(t);
   draw(frame);
   if (clip?.kind === 'spell') drawSpelling(clip, (t - clip.start) / clip.length);
-  el('speed').textContent = clip ? `${clip.speed.toFixed(1)}× speed` : '';
+  el('speed').textContent = clip ? `${clip.mode === 'aligned' ? 'aligned to speech' : 'sentence mode'} · ${clip.speed.toFixed(1)}×` : '';
   const lag = clip ? clip.behind : 0;
   el('lag').textContent = lag > 0.3 ? `· ${lag.toFixed(1)}s behind speech` : '';
   el('lag').className = lag > 0.3 ? 'behind' : '';
