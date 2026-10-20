@@ -26,13 +26,23 @@
     .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-right: 4px; }
     .credit { margin-top: 16px; font-size: 12px; color: var(--muted); }
     .credit a { color: var(--accent); }
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+    #optimize { font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--accent);
+                background: var(--card); color: var(--accent); cursor: pointer; }
+    #optimize[aria-pressed="true"] { background: var(--accent); color: #fff; }
+    #optimize:disabled { opacity: .45; cursor: default; }
+    #rate { font-size: 13px; color: var(--muted); }
   </style>
 </head>
 <body>
 <main>
   <h1>2D signing prototype</h1>
   <p class="note">Upload a video. The right pane signs it with a figure animated from ASL Signbank sign videos. When the speech is slow enough, each sign lines up with its word; in fast stretches it signs the whole sentence while it is spoken, like closed captions, speeding up to 3×.</p>
-  <input id="file" type="file" accept="video/*,audio/*">
+  <div class="controls">
+    <input id="file" type="file" accept="video/*,audio/*">
+    <button id="optimize" type="button" aria-pressed="false" disabled>Optimize for ASL</button>
+    <span id="rate"></span>
+  </div>
   <div id="status">No video yet.</div>
 
   <div class="panes">
@@ -88,7 +98,9 @@ const el = id => document.getElementById(id);
 
 let timeline = [];
 let segments = [];
+let poses = {};
 let restFrame = null;
+let optimized = false;
 
 // Public-domain handshape images for fingerspelling, loaded once.
 const letterImages = {};
@@ -109,12 +121,30 @@ el('file').addEventListener('change', async e => {
   if (!res.ok) { el('status').textContent = data.error || 'Something went wrong.'; return; }
   segments = data.segments;
   el('status').textContent = 'Loading sign animations…';
-  const poses = await loadPoses(segments);
-  timeline = buildTimeline(segments, poses);
-  const end = timeline.length ? timeline[timeline.length - 1].start + timeline[timeline.length - 1].length : 0;
-  const animated = timeline.filter(c => c.kind === 'pose').length;
-  el('status').textContent = `${timeline.length} clips (${animated} animated). Speech ends at ${fmt(segments.at(-1).end)}, signing ends at ${fmt(end)}. Press play.`;
+  poses = await loadPoses(segments);
+  el('optimize').disabled = false;
+  applyRate();
 });
+
+// Optimize for ASL: slow the video down so the signs have time to be read. The audio keeps
+// its pitch (browsers preserve it by default when slowing playback).
+el('optimize').addEventListener('click', () => {
+  optimized = !optimized;
+  el('optimize').setAttribute('aria-pressed', String(optimized));
+  applyRate();
+});
+
+function applyRate() {
+  const rate = optimized ? optimalRate(segments, poses) : 1;
+  video.playbackRate = rate;
+  video.defaultPlaybackRate = rate;  // keeps the rate if the video is reloaded
+  timeline = buildTimeline(segments, poses, rate);
+  el('rate').textContent = optimized ? `Video at ${rate.toFixed(2)}× speed` : '';
+  const end = timeline.length ? timeline.at(-1).start + timeline.at(-1).length : 0;
+  const animated = timeline.filter(c => c.kind === 'pose').length;
+  const late = Math.max(0, ...timeline.map(c => c.behind));
+  el('status').textContent = `${timeline.length} clips (${animated} animated). Signing ends ${fmt(Math.max(0, (end - segments.at(-1).end) / rate))} after the speech; the latest sentence starts ${fmt(late / rate)} late. Press play.`;
+}
 
 // Fetch each sign's animation once. The server made them while processing the upload.
 async function loadPoses(segments) {
@@ -171,37 +201,48 @@ function packSentence(own, from, windowEnd, sentenceStart) {
   });
 }
 
+// A sentence's signs as clips, before timing. `natural` is how long each takes at 1x, in
+// real seconds; `rate` is the video's playback rate. At rate 0.7 a video-second lasts
+// 1/0.7 real seconds, so a sign needs only 0.7 video-seconds per real second.
+function sentenceClips(seg, poses, rate) {
+  const own = [];
+  for (const sign of seg.signs) {
+    const pose = sign.media?.pose ? poses[sign.media.pose] : null;
+    const last = own[own.length - 1];
+    const word = sign.start ?? seg.start;  // when the sign's English word is said
+    if (pose?.frames.length) {
+      own.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps, word, char: sign.start_char });
+    } else if (sign.media?.type === 'spell' || (sign.media?.type === 'video' && sign.kind === 'sign' && /^[a-z]+$/i.test(sign.gloss))) {
+      // No sign animation for this word: fingerspell it, as ASL does for words without a sign.
+      const letters = sign.media.letters || sign.gloss;
+      own.push({ kind: 'spell', label: letters.toUpperCase(), natural: spellTime(letters.length), word, char: sign.start_char });
+    } else if (sign.kind === 'fingerspell' && last?.kind === 'spell' && last.word === word) {
+      last.label += sign.gloss.toUpperCase();   // letters of the same name
+      last.natural = spellTime(last.label.length);
+    } else if (sign.kind === 'fingerspell') {
+      own.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: spellTime(1), word, char: sign.start_char });
+    } else {
+      own.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: UNSIGNED_WORD_TIME, word, char: sign.start_char });
+    }
+  }
+  own.forEach(clip => { clip.natural *= rate; });
+  return own;
+}
+
+const windowEndOf = (segments, i) => segments[i + 1]?.start ?? segments[i].end + LAST_SENTENCE_EXTRA;
+
 // Turn each sentence's signs into clips on the video's clock.
-function buildTimeline(segments, poses) {
+function buildTimeline(segments, poses, rate = 1) {
   const clips = [];
   let free = 0;  // when the previous sentence's signing finishes
   segments.forEach((seg, i) => {
-    const own = [];
-    for (const sign of seg.signs) {
-      const pose = sign.media?.pose ? poses[sign.media.pose] : null;
-      const last = own[own.length - 1];
-      const word = sign.start ?? seg.start;  // when the sign's English word is said
-      if (pose?.frames.length) {
-        own.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps, word, char: sign.start_char });
-      } else if (sign.media?.type === 'spell' || (sign.media?.type === 'video' && sign.kind === 'sign' && /^[a-z]+$/i.test(sign.gloss))) {
-        // No sign animation for this word: fingerspell it, as ASL does for words without a sign.
-        const letters = sign.media.letters || sign.gloss;
-        own.push({ kind: 'spell', label: letters.toUpperCase(), natural: spellTime(letters.length), word, char: sign.start_char });
-      } else if (sign.kind === 'fingerspell' && last?.kind === 'spell' && last.word === word) {
-        last.label += sign.gloss.toUpperCase();   // letters of the same name
-        last.natural = spellTime(last.label.length);
-      } else if (sign.kind === 'fingerspell') {
-        own.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: spellTime(1), word, char: sign.start_char });
-      } else {
-        own.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: UNSIGNED_WORD_TIME, word, char: sign.start_char });
-      }
-    }
+    const own = sentenceClips(seg, poses, rate);
     if (!own.length) return;
 
     // The sentence has until the next sentence starts. If the previous one ran over,
     // this one starts late and has less time.
     const from = Math.max(seg.start, free);
-    const windowEnd = segments[i + 1]?.start ?? seg.end + LAST_SENTENCE_EXTRA;
+    const windowEnd = windowEndOf(segments, i);
     const aligned = tryAlign(own, free, windowEnd);
     const placed = aligned || packSentence(own, from, windowEnd, seg.start);
     const mode = aligned ? 'aligned' : 'sentence';
@@ -213,6 +254,26 @@ function buildTimeline(segments, poses) {
     free = last.start + last.length + BLEND / last.speed;
   });
   return clips;
+}
+
+// "Optimize for ASL": the fastest video speed at which most sentences (OPTIMIZE_SHARE) can be
+// signed at BASE_SPEED, with fingerspelling at its own pace, before the next sentence starts.
+// The rest still speed up as usual. Never slower than MIN_RATE.
+const OPTIMIZE_SHARE = 0.9;
+const MIN_RATE = 0.5;
+function optimalRate(segments, poses) {
+  const fits = [];
+  segments.forEach((seg, i) => {
+    const own = sentenceClips(seg, poses, 1);
+    if (!own.length) return;
+    const atBase = own.reduce((t, c) => t + (c.kind === 'spell' ? c.natural : c.natural / BASE_SPEED), 0);
+    const blends = BLEND * (own.length - 1) / BASE_SPEED;
+    fits.push((windowEndOf(segments, i) - seg.start - blends) / atBase);  // the rate at which this sentence just fits
+  });
+  if (!fits.length) return 1;
+  fits.sort((a, b) => a - b);
+  const rate = fits[Math.floor((1 - OPTIMIZE_SHARE) * fits.length)];
+  return Math.min(1, Math.max(MIN_RATE, Math.floor(rate * 20) / 20));  // round down to a 0.05 step
 }
 
 // ---------- what to show at time t ----------
@@ -404,13 +465,13 @@ video.addEventListener('play', () => { endedAt = null; });
 video.addEventListener('seeked', () => { endedAt = null; });
 
 function tick() {
-  const t = endedAt === null ? video.currentTime : video.duration + (performance.now() - endedAt) / 1000;
+  const t = endedAt === null ? video.currentTime : video.duration + (performance.now() - endedAt) / 1000 * video.playbackRate;
   const { frame, clip } = stateAt(t);
   draw(frame);
   if (clip?.kind === 'spell') drawSpelling(clip);
   const pace = clip?.kind === 'spell' ? 'fingerspelling' : `${clip?.speed.toFixed(1)}×`;
   el('speed').textContent = clip ? `${clip.mode === 'aligned' ? 'aligned to speech' : 'sentence mode'} · ${pace}` : '';
-  const lag = clip ? clip.behind : 0;
+  const lag = clip ? clip.behind / video.playbackRate : 0;  // in real seconds
   el('lag').textContent = lag > 0.3 ? `· ${lag.toFixed(1)}s behind speech` : '';
   el('lag').className = lag > 0.3 ? 'behind' : '';
   el('spoken').textContent = caption(t);
