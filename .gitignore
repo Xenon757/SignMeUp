@@ -1,1 +1,17 @@
-venv
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node (only used to build Tailwind CSS)
+node_modules/
+
+# Editor
+.idea/
+.vscode/
+.DS_Store
+
+# Runtime data: uploaded videos and generated transcripts
+uploads/
