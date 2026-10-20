@@ -253,3 +253,33 @@ def test_crop_hand_must_be_at_this_wrist_and_not_the_other_hand():
     assert pick_crop_hand([far_away], pose, "rightHand", None, 400, 200) is None
     # The only hand found is the one already used for the other side: not accepted.
     assert pick_crop_hand([at_right_wrist], pose, "rightHand", at_right_wrist, 400, 200) is None
+
+
+from asl_util.poses import drop_hand_glitches  # noqa: E402
+
+
+def open_hand(x, y):
+    """A flat hand: wrist at (x, y), fingers fanned upward (normalized image coords)."""
+    pts = [[x, y, 0.0]]
+    for f in range(5):
+        for k in range(1, 5):
+            pts.append([x + (f - 2) * 0.01, y - 0.012 * k, 0.0])
+    return pts
+
+
+def fist(x, y):
+    """The same hand closed: all points bunched near the palm."""
+    return [[x, y, 0.0]] + [[x + (i % 5 - 2) * 0.005, y - 0.012 - (i % 4) * 0.003, 0.0] for i in range(20)]
+
+
+def test_one_frame_glitch_is_removed():
+    hands = [open_hand(0.4, 0.5)] * 4 + [fist(0.4, 0.5)] + [open_hand(0.4, 0.5)] * 4
+    frames = [frame(wrist_y=0.5, right_hand=h) for h in hands]
+    assert drop_hand_glitches(frames, 0, len(frames) - 1, 400, 200) == 1
+    assert frames[4]["rightHand"] is None
+
+
+def test_real_handshape_change_is_kept():
+    hands = [open_hand(0.4, 0.5)] * 5 + [fist(0.4, 0.5)] * 5   # opens, then closes and stays closed
+    frames = [frame(wrist_y=0.5, right_hand=h) for h in hands]
+    assert drop_hand_glitches(frames, 0, len(frames) - 1, 400, 200) == 0

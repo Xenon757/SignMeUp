@@ -34,10 +34,11 @@
     <label>Speed
       <select id="speed"><option value="1">1×</option><option value="0.5">0.5×</option><option value="0.25">0.25×</option></select>
     </label>
+    <button id="play" type="button">Pause</button>
     <button id="step" type="button">Next frame</button>
   </div>
   <div class="panes">
-    <div class="pane"><h2>Signbank video</h2><video id="video" muted loop playsinline autoplay></video></div>
+    <div class="pane"><h2>Signbank video</h2><video id="video" muted loop playsinline autoplay controls></video></div>
     <div class="pane"><h2>Animation</h2><canvas id="canvas" width="1000" height="1000"></canvas><div id="state"></div></div>
   </div>
   <p class="credit">Videos from <a href="https://aslsignbank.com" target="_blank" rel="noopener">ASL Signbank</a> (Hochgesang, Crasborn &amp; Lillo-Martin, CC BY-NC-SA 4.0); animations tracked from them with MediaPipe.</p>
@@ -66,6 +67,10 @@ async function show(id) {
 
 select.addEventListener('change', () => show(select.value));
 document.getElementById('speed').addEventListener('change', e => { video.playbackRate = Number(e.target.value); });
+const playButton = document.getElementById('play');
+playButton.addEventListener('click', () => (video.paused ? video.play() : video.pause()));
+video.addEventListener('play', () => { playButton.textContent = 'Pause'; });
+video.addEventListener('pause', () => { playButton.textContent = 'Play'; });
 document.getElementById('step').addEventListener('click', () => {
   video.pause();
   video.currentTime = Math.min(video.duration, video.currentTime + 1 / (clip?.fps || 24));

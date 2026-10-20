@@ -75,7 +75,7 @@ HOLD_MOTION = 0.012
 MIN_FRAMES = 6  # never trim a sign shorter than this
 
 # Bump when the stored animation format or trimming changes, so cached files are remade.
-CLIP_VERSION = 5
+CLIP_VERSION = 6
 
 # Tracking wobbles a little from frame to frame. Each point is smoothed over time with a
 # Gaussian of this spread (in frames). Measured on Signbank clips, sigma 1 cuts finger
@@ -185,6 +185,76 @@ def fill_hand_gaps(frames: List[Frame], start: int, end: int) -> int:
     return filled
 
 
+# Hand bones whose 3D length stays the same however the hand turns: finger segments and
+# the palm's edges. Used to spot tracking glitches (a hand stretched or collapsed).
+HAND_BONES = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (9, 10), (10, 11), (11, 12),
+              (13, 14), (14, 15), (15, 16), (0, 17), (17, 18), (18, 19), (19, 20), (5, 9), (9, 13), (13, 17)]
+GLITCH_JUMP = 0.25      # shape change from neighbouring frames, in palm lengths
+GLITCH_STRETCH = 0.22   # mean bone length error against this hand's usual bone lengths
+GLITCH_STRETCH_JUMP = 0.3
+
+
+def _median(values: List[float]) -> float:
+    v = sorted(values)
+    n = len(v)
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2
+
+
+def _median_shape(shapes: List[List[List[float]]]) -> List[List[float]]:
+    return [[_median([s[i][d] for s in shapes]) for d in range(2)] for i in range(len(shapes[0]))]
+
+
+def _shape_gap(a: List[List[float]], b: List[List[float]]) -> float:
+    return sum(((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2) ** 0.5 for p, q in zip(a, b)) / len(a)
+
+
+def drop_hand_glitches(frames: List[Frame], start: int, end: int, width: int, height: int) -> int:
+    """Remove frames where a hand's tracking briefly goes wrong, so they are filled in from good frames.
+
+    Mostly happens when the hands overlap: the hidden hand's fingers are guessed and
+    can collapse onto the other hand for a few frames. A frame is a glitch if its
+    shape jumps away from the frames around it and the frames on both sides agree
+    (it jumps and comes back), or if it jumps and its bones are also stretched or
+    shrunk compared to the same hand's usual 3D bone lengths. A real handshape
+    change (fist to open hand) doesn't come back and keeps the bones' lengths.
+    The worst glitch is removed first, then the rest are re-checked. Returns how
+    many hands were removed.
+    """
+    removed = 0
+    for hand in ("leftHand", "rightHand"):
+        pts = {
+            i: [(p[0] * width, p[1] * height, (p[2] if len(p) > 2 else 0.0) * width) for p in frames[i][hand]]
+            for i in range(start, end + 1)
+            if frames[i][hand]
+        }
+        if len(pts) < 5:
+            continue
+        palm = _median([_dist(p[0][:2], p[9][:2]) for p in pts.values()]) or 1.0
+        shape = {i: [[(q[0] - p[0][0]) / palm, (q[1] - p[0][1]) / palm] for q in p] for i, p in pts.items()}
+        bones = {i: [sum((p[u][d] - p[v][d]) ** 2 for d in range(3)) ** 0.5 for u, v in HAND_BONES] for i, p in pts.items()}
+        usual = [_median([b[k] for b in bones.values()]) or 1.0 for k in range(len(HAND_BONES))]
+        stretch = {i: sum(abs(b[k] / usual[k] - 1) for k in range(len(b))) / len(b) for i, b in bones.items()}
+        while True:
+            worst = None
+            for i in sorted(shape):
+                before = [shape[j] for j in range(i - 3, i) if j in shape][-2:]
+                after = [shape[j] for j in range(i + 1, i + 4) if j in shape][:2]
+                if not before and not after:
+                    continue
+                gaps = [_shape_gap(shape[i], _median_shape(side)) for side in (before, after) if side]
+                jump = min(gaps)
+                comes_back = bool(before and after) and _shape_gap(_median_shape(before), _median_shape(after)) < jump
+                glitch = (comes_back and jump > GLITCH_JUMP) or (stretch[i] > GLITCH_STRETCH and jump > GLITCH_STRETCH_JUMP)
+                if glitch and (worst is None or jump > worst[0]):
+                    worst = (jump, i)
+            if worst is None:
+                break
+            del shape[worst[1]]
+            frames[worst[1]][hand] = None
+            removed += 1
+    return removed
+
+
 def to_body_space(frames: List[Frame], width: int, height: int, digits: int = 3) -> List[Frame]:
     """Re-express points relative to the signer's shoulders.
 
@@ -271,6 +341,7 @@ def build_clip(gloss: str, frames: List[Frame], fps: float, width: int, height: 
     if not any(f["pose"] for f in frames):
         return {"version": CLIP_VERSION, "gloss": gloss, "fps": fps, "rest": None, "frames": []}
     start, end = active_range(frames)
+    drop_hand_glitches(frames, start, end, width, height)
     fill_hand_gaps(frames, start, end)
     smooth_over_time(frames)
     body = to_body_space(frames, width, height)
