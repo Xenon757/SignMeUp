@@ -1,6 +1,15 @@
 """Tests for matching words to ASL Signbank entries. Uses a hand-built gloss list."""
 
-from asl_util.signbank import GlossIndex, VideoResolver, entry_page_url, gloss_root, video_url_from_page
+from asl_util.signbank import (
+    GlossIndex,
+    SignMedia,
+    VideoResolver,
+    entry_page_url,
+    gloss_root,
+    video_url_from_page,
+)
+from asl_util.translate import Sign
+from conftest import FakePages
 
 GLOSSES = {
     "CAT8": 347,
@@ -53,21 +62,6 @@ ENTRY_PAGE = """<table><td id='annotation_idgloss_en_US'>CATf</td></table>
 CAT_VIDEO = "https://aslsignbank.com/dictionary/protected_media/glossvideo/ASL/CA/CAT-1037.mp4"
 
 
-class FakePages:
-    """Stands in for aslsignbank.com: returns canned pages and counts fetches."""
-
-    def __init__(self, pages=None, error=None):
-        self.pages = pages or {}
-        self.error = error
-        self.fetched = []
-
-    def __call__(self, url):
-        self.fetched.append(url)
-        if self.error:
-            raise self.error
-        return self.pages.get(url, "<html>no video here</html>")
-
-
 def test_video_url_is_read_from_entry_page():
     assert video_url_from_page(ENTRY_PAGE) == CAT_VIDEO
     assert video_url_from_page("<html></html>") is None
@@ -110,3 +104,42 @@ def test_resolver_ignores_corrupt_cache(tmp_path):
     cache.write_text("not json")
     resolver = VideoResolver(cache, fetch=FakePages({entry_page_url(1037): ENTRY_PAGE}))
     assert resolver.video_url(1037) == CAT_VIDEO
+
+
+def media(pages):
+    return SignMedia(GlossIndex(GLOSSES), VideoResolver(fetch=FakePages(pages)))
+
+
+def test_sign_gets_first_variant_with_a_video():
+    # CAT8 (347) has no video page, so CATf (1037) is used.
+    found = media({entry_page_url(1037): ENTRY_PAGE}).for_sign(Sign("cats", "cat", "sign"))
+    assert found == {
+        "type": "video",
+        "url": CAT_VIDEO,
+        "gloss": "CATf",
+        "page": "https://aslsignbank.com/dictionary/gloss/1037.html",
+        "source": "ASL Signbank (CC BY-NC-SA 4.0)",
+    }
+
+
+def test_sign_without_signbank_entry_has_no_media():
+    assert media({}).for_sign(Sign("go", "go", "sign")) is None
+
+
+def test_fingerspelled_letter_uses_bundled_image():
+    found = media({}).for_sign(Sign("a", "a", "fingerspell"))
+    assert found["type"] == "image"
+    assert found["url"] == "/static/img/fingerspelling/a.svg"
+
+
+def test_non_letter_fingerspelling_has_no_media():
+    assert media({}).for_sign(Sign("é", "é", "fingerspell")) is None
+
+
+def test_for_signs_keeps_order_and_looks_up_repeated_words_once():
+    pages = FakePages({entry_page_url(1037): ENTRY_PAGE})
+    finder = SignMedia(GlossIndex(GLOSSES), VideoResolver(fetch=pages))
+    signs = [Sign("cat", "cat", "sign"), Sign("b", "b", "fingerspell"), Sign("cat", "cat", "sign"), Sign("go", "go", "sign")]
+    found = finder.for_signs(signs)
+    assert [m and m["type"] for m in found] == ["video", "image", "video", None]
+    assert pages.fetched.count(entry_page_url(1037)) == 1

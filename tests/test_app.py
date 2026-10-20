@@ -6,7 +6,7 @@ from app import create_app
 from asl_util.pipeline import translate_video
 from asl_util.transcribe import Segment
 
-from conftest import FakeGlosser, FakeTranscriber
+from conftest import HELLO_VIDEO, FakeGlosser, FakeTranscriber
 
 
 def upload(client, name="talk.mp4", data=b"fake video bytes"):
@@ -36,6 +36,15 @@ def test_upload_returns_timestamped_signs(client):
     first = body["segments"][0]
     assert (first["start"], first["end"]) == (0.0, 2.5)
     assert [s["gloss"] for s in first["signs"]] == ["hello", "aadi"]
+
+
+def test_upload_attaches_sign_media(client):
+    first = upload(client).get_json()["segments"][0]
+    hello, aadi = first["signs"]
+    assert hello["media"]["type"] == "video"
+    assert hello["media"]["url"] == HELLO_VIDEO
+    assert hello["media"]["page"] == "https://aslsignbank.com/dictionary/gloss/482.html"
+    assert aadi["media"] is None
 
 
 def test_uploaded_file_is_deleted_after_processing(client, transcriber, upload_dir):

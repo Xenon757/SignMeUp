@@ -13,8 +13,11 @@ import logging
 import re
 import threading
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
+
+from .translate import Sign
 
 GLOSS_FILE = Path(__file__).resolve().parent / "data" / "signbank_glosses.json"
 SITE = "https://aslsignbank.com"
@@ -128,3 +131,49 @@ class VideoResolver:
             tmp.replace(self._cache_file)
         except OSError as exc:
             log.warning("Could not save Signbank cache: %s", exc)
+
+
+LETTER_IMAGE = "/static/img/fingerspelling/{}.svg"
+
+
+class SignMedia:
+    """Picks what to show for each sign: a Signbank video or a letter image.
+
+    Fingerspelled letters use the bundled public-domain handshape images.
+    Other signs use the first Signbank variant that has a video; signs with
+    no match get None, and the page shows the gloss as text instead.
+    """
+
+    def __init__(self, index: GlossIndex, resolver: VideoResolver, max_variants: int = 3, workers: int = 4):
+        self._index = index
+        self._resolver = resolver
+        self._max_variants = max_variants
+        self._workers = workers
+
+    def for_sign(self, sign: Sign) -> Optional[dict]:
+        if sign.kind == "fingerspell":
+            letter = sign.gloss.lower()
+            if len(letter) == 1 and "a" <= letter <= "z":
+                return {"type": "image", "url": LETTER_IMAGE.format(letter), "source": "Wikimedia Commons (public domain)"}
+            return None
+        return self._video_for(sign.gloss)
+
+    def for_signs(self, signs: Sequence[Sign]) -> List[Optional[dict]]:
+        """Media for each sign. Words not seen before are looked up a few at a time."""
+        words = {s.gloss for s in signs if s.kind != "fingerspell"}
+        with ThreadPoolExecutor(max_workers=self._workers) as pool:
+            videos = dict(zip(words, pool.map(self._video_for, words)))
+        return [self.for_sign(s) if s.kind == "fingerspell" else videos[s.gloss] for s in signs]
+
+    def _video_for(self, word: str) -> Optional[dict]:
+        for gloss, entry_id in self._index.candidates(word)[: self._max_variants]:
+            url = self._resolver.video_url(entry_id)
+            if url:
+                return {
+                    "type": "video",
+                    "url": url,
+                    "gloss": gloss,
+                    "page": entry_page_url(entry_id),
+                    "source": "ASL Signbank (CC BY-NC-SA 4.0)",
+                }
+        return None
