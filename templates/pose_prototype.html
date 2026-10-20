@@ -21,7 +21,8 @@
     #stats { font-size: 13px; color: var(--muted); }
     #lag.behind { color: #b45309; font-weight: 600; }
     #status { margin: 12px 0; font-size: 14px; color: var(--muted); }
-    #spoken { margin-top: 8px; font-size: 15px; min-height: 22px; }
+    .line { margin-top: 8px; font-size: 15px; min-height: 22px; }
+    .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-right: 4px; }
     .credit { margin-top: 16px; font-size: 12px; color: var(--muted); }
     .credit a { color: var(--accent); }
   </style>
@@ -36,7 +37,7 @@
   <div class="panes">
     <div class="pane">
       <video id="video" controls playsinline></video>
-      <div id="spoken"></div>
+      <div class="line"><span class="tag">Spoken</span> <span id="spoken"></span></div>
     </div>
     <div class="pane">
       <canvas id="canvas" width="1200" height="900"></canvas>
@@ -44,6 +45,7 @@
         <span id="gloss"></span>
         <span id="stats"><span id="speed"></span> <span id="lag"></span></span>
       </div>
+      <div class="line"><span class="tag">Signing</span> <span id="signing"></span></div>
     </div>
   </div>
 
@@ -60,7 +62,7 @@ const WORD_CARD_TIME = 0.45;   // a word with no sign animation, shown as text
 const HAND_BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
                     [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
 const PALM = [0, 1, 5, 9, 13, 17];
-// Face points are stored outline after outline, in this order and length (see scripts/extract_poses.py).
+// Face points are stored outline after outline, in this order and length (see asl_util/poses.py).
 const FACE_OUTLINES = [["oval", 36], ["lips", 20], ["leftEye", 16], ["rightEye", 16], ["leftBrow", 10], ["rightBrow", 10]];
 // Pose points: 0 nose, 1-2 shoulders, 3-4 elbows, 5-6 wrists, 7-8 hips.
 const COLORS = { body: '#334a6b', skin: '#e9c9a8', hand: '#c98f62', line: '#1f2937', torso: '#d7dee9' };
@@ -73,6 +75,13 @@ const el = id => document.getElementById(id);
 let timeline = [];
 let segments = [];
 let restFrame = null;
+
+// Public-domain handshape images for fingerspelling, loaded once.
+const letterImages = {};
+for (const ch of 'abcdefghijklmnopqrstuvwxyz') {
+  letterImages[ch] = new Image();
+  letterImages[ch].src = `/static/img/fingerspelling/${ch}.svg`;
+}
 
 el('file').addEventListener('change', async e => {
   const file = e.target.files[0];
@@ -93,32 +102,17 @@ el('file').addEventListener('change', async e => {
   el('status').textContent = `${timeline.length} clips (${animated} animated). Speech ends at ${fmt(segments.at(-1).end)}, signing ends at ${fmt(end)}. Press play.`;
 });
 
+// Fetch each sign's animation once. The server made them while processing the upload.
 async function loadPoses(segments) {
-  const glosses = new Set();
-  segments.forEach(s => s.signs.forEach(sign => { if (sign.media?.type === 'video') glosses.add(sign.media.gloss); }));
+  const urls = new Set();
+  segments.forEach(s => s.signs.forEach(sign => { if (sign.media?.pose) urls.add(sign.media.pose); }));
   const poses = {};
-  await Promise.all([...glosses].map(async g => {
-    const res = await fetch(`/static/poses/${encodeURIComponent(g)}.json`);
-    if (res.ok) poses[g] = toBodySpace(await res.json());
+  await Promise.all([...urls].map(async url => {
+    const res = await fetch(url);
+    if (res.ok) poses[url] = await res.json();
   }));
-  const first = Object.values(poses)[0];
-  if (first) restFrame = first.frames[0];
+  restFrame = Object.values(poses).find(p => p.rest)?.rest || null;
   return poses;
-}
-
-// Signbank signers are filmed at different distances and positions. Re-express every
-// point relative to the signer's shoulders (origin between them, 1 unit = shoulder
-// width), measured on the clip's first frame, so all signs share one body size.
-function toBodySpace(clip) {
-  const first = clip.frames.find(f => f.pose);
-  if (!first) return clip;
-  const px = ([x, y]) => [x * clip.width, y * clip.height];
-  const [l, r] = [px(first.pose[1]), px(first.pose[2])];
-  const cx = (l[0] + r[0]) / 2, cy = (l[1] + r[1]) / 2;
-  const unit = Math.hypot(l[0] - r[0], l[1] - r[1]) || 1;
-  const map = pts => pts && pts.map(p => { const [x, y] = px(p); return [(x - cx) / unit, (y - cy) / unit]; });
-  clip.frames = clip.frames.map(f => ({ pose: map(f.pose), leftHand: map(f.leftHand), rightHand: map(f.rightHand), face: map(f.face) }));
-  return clip;
 }
 
 // Turn each spoken segment's signs into clips with start times on the video's clock.
@@ -128,10 +122,10 @@ function buildTimeline(segments, poses) {
   for (const seg of segments) {
     const segClips = [];
     for (const sign of seg.signs) {
-      const pose = sign.media?.type === 'video' ? poses[sign.media.gloss] : null;
+      const pose = sign.media?.pose ? poses[sign.media.pose] : null;
       const last = segClips[segClips.length - 1];
-      if (pose) {
-        segClips.push({ kind: 'pose', label: sign.media.gloss, pose, natural: (pose.end - pose.start + 1) / pose.fps });
+      if (pose?.frames.length) {
+        segClips.push({ kind: 'pose', label: sign.media.gloss, pose, natural: pose.frames.length / pose.fps });
       } else if (sign.kind === 'fingerspell' && last?.kind === 'spell') {
         last.label += sign.gloss.toUpperCase();
         last.natural += LETTER_TIME;
@@ -146,7 +140,7 @@ function buildTimeline(segments, poses) {
     const speed = Math.min(MAX_SPEED, Math.max(1, needed / Math.max(0.1, seg.end - seg.start)));
     let t = Math.max(seg.start, cursor);
     for (const clip of segClips) {
-      Object.assign(clip, { start: t, length: clip.natural / speed, speed, segEnd: seg.end });
+      Object.assign(clip, { start: t, length: clip.natural / speed, speed, segEnd: seg.end, text: seg.text });
       t += clip.length + BLEND / speed;
       clips.push(clip);
     }
@@ -170,13 +164,12 @@ function lerpFrame(a, b, k) {
 }
 
 function poseFrame(clip, progress) {
-  const p = clip.pose;
-  const f = Math.min(p.end, p.start + Math.floor(progress * (p.end - p.start + 1)));
-  return p.frames[f];
+  const frames = clip.pose.frames;
+  return frames[Math.min(frames.length - 1, Math.floor(progress * frames.length))];
 }
 
-const firstFrame = clip => clip.kind === 'pose' ? clip.pose.frames[clip.pose.start] : null;
-const lastFrame = clip => clip.kind === 'pose' ? clip.pose.frames[clip.pose.end] : null;
+const firstFrame = clip => clip.kind === 'pose' ? clip.pose.frames[0] : null;
+const lastFrame = clip => clip.kind === 'pose' ? clip.pose.frames.at(-1) : null;
 
 function stateAt(t) {
   let held = restFrame;
@@ -283,6 +276,19 @@ function drawCard(text) {
   ctx.fillText(text, canvas.width / 2, canvas.height * 0.82);
 }
 
+// Fingerspelling: show each letter's handshape in turn, with the word so far underneath.
+function drawSpelling(clip, progress) {
+  const letters = clip.label.toLowerCase();
+  const i = Math.min(letters.length - 1, Math.floor(progress * letters.length));
+  const img = letterImages[letters[i]];
+  const size = canvas.height * 0.42;
+  const x = (canvas.width - size) / 2, y = canvas.height * 0.18;
+  ctx.fillStyle = 'rgba(255,255,255,.92)';
+  ctx.fillRect(x - 20, y - 20, size + 40, size + 40);
+  if (img?.complete && img.naturalWidth) ctx.drawImage(img, x, y, size, size);
+  drawCard(clip.label.slice(0, i + 1));
+}
+
 function fmt(t) { return `${t.toFixed(1)}s`; }
 
 // Signing can run past the end of the video, so after it ends the clock keeps going.
@@ -295,7 +301,8 @@ function tick() {
   const t = endedAt === null ? video.currentTime : video.duration + (performance.now() - endedAt) / 1000;
   const { frame, clip } = stateAt(t);
   draw(frame);
-  if (clip && clip.kind !== 'pose') drawCard(clip.kind === 'spell' ? `${clip.label} (spelled)` : clip.label);
+  if (clip?.kind === 'spell') drawSpelling(clip, (t - clip.start) / clip.length);
+  else if (clip?.kind === 'word') drawCard(clip.label);
   el('gloss').textContent = clip ? clip.label : '';
   el('speed').textContent = clip ? `${clip.speed.toFixed(1)}× speed` : '';
   const lag = clip ? t - clip.segEnd : 0;
@@ -303,6 +310,7 @@ function tick() {
   el('lag').className = lag > 0 ? 'behind' : '';
   const seg = segments.find(s => t >= s.start && t < s.end);
   el('spoken').textContent = seg ? seg.text : '';
+  el('signing').textContent = clip ? clip.text : '';
   requestAnimationFrame(tick);
 }
 requestAnimationFrame(tick);
