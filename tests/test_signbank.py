@@ -141,5 +141,100 @@ def test_for_signs_keeps_order_and_looks_up_repeated_words_once():
     finder = SignMedia(GlossIndex(GLOSSES), VideoResolver(fetch=pages))
     signs = [Sign("cat", "cat", "sign"), Sign("b", "b", "fingerspell"), Sign("cat", "cat", "sign"), Sign("go", "go", "sign")]
     found = finder.for_signs(signs)
-    assert [m and m["type"] for m in found] == ["video", "image", "video", None]
+    assert [m and m["type"] for m in found] == ["video", "image", "video", "spell"]
     assert pages.fetched.count(entry_page_url(1037)) == 1
+
+
+def test_same_word_family():
+    from asl_util.signbank import same_word_family
+    assert same_word_family("limitation", "LIMIT")
+    assert same_word_family("explain", "EXPLANATION")
+    assert same_word_family("phone", "MOBILE-PHONE")
+    assert same_word_family("review", "~REVIEW")
+    assert same_word_family("feeling", "FEELb")
+    assert not same_word_family("ever", "NEVER")
+    assert not same_word_family("national", "NORMAL")
+    assert not same_word_family("set", "ASSIGN")
+
+
+TRANSLATED = {
+    "LIMIT": ["limit", "limitation", "restrict"],
+    "NEVER": ["never", "ever"],
+    "MOBILE-PHONE": ["cell phone", "phone", "mobile"],
+    "CALL": ["call", "phone", "telephone", "ring", "dial"],
+    "IX": ["he", "she", "you", "there"],
+    "STORE": ["store"],
+    "SHOPa": ["shop", "store", "shopping"],
+}
+TRANSLATED_IDS = {g: i for i, g in enumerate(TRANSLATED, start=1)}
+
+
+def test_word_family_translation_is_used_when_no_gloss_is_named_after_the_word():
+    index = GlossIndex(TRANSLATED_IDS, TRANSLATED)
+    assert [g for g, _ in index.candidates("limitation")] == ["LIMIT"]
+    assert [g for g, _ in index.candidates("phone")] == ["MOBILE-PHONE"]  # CALL isn't the same word family
+
+
+def test_unrelated_translation_is_not_used():
+    # "ever" is listed under NEVER, which would flip the meaning.
+    assert GlossIndex(TRANSLATED_IDS, TRANSLATED).candidates("ever") == []
+
+
+def test_reviewed_choice_is_used_for_common_words():
+    index = GlossIndex(TRANSLATED_IDS, TRANSLATED, {"you": "IX"})
+    assert [g for g, _ in index.candidates("you")] == ["IX"]
+
+
+def test_named_gloss_comes_before_reviewed_choice():
+    # STORE has no video on Signbank, so SHOP is kept as a fallback after it.
+    index = GlossIndex(TRANSLATED_IDS, TRANSLATED, {"store": "SHOP"})
+    assert [g for g, _ in index.candidates("store")] == ["STORE", "SHOPa"]
+
+
+def test_every_reviewed_choice_is_one_of_signbanks_translations():
+    import json
+    from asl_util.signbank import CHOICES_FILE, GLOSS_FILE, gloss_root
+
+    data = json.loads(GLOSS_FILE.read_text())
+    choices = json.loads(CHOICES_FILE.read_text())["choices"]
+    for word, root in choices.items():
+        listed = [g for g, words in data["translations"].items() if gloss_root(g) == root and word in words]
+        assert listed, f"{word!r} -> {root}: no {root} entry lists {word!r} as a translation"
+
+
+def test_word_without_video_is_fingerspelled():
+    finder = media({})
+    [found] = finder.for_signs([Sign("mat", "mat", "sign")])
+    assert found["type"] == "spell"
+    assert found["letters"] == "mat"
+    assert found["images"] == ["/static/img/fingerspelling/m.svg", "/static/img/fingerspelling/a.svg", "/static/img/fingerspelling/t.svg"]
+
+
+def test_numbers_and_non_letters_are_not_fingerspelled():
+    finder = media({})
+    assert finder.for_signs([Sign("42", "forty-two", "number"), Sign("x2", "x2", "sign")]) == [None, None]
+
+
+class FakePoseStore:
+    """Only entries in `animated` make an animation."""
+
+    def __init__(self, animated):
+        self.animated = animated
+
+    def ensure(self, entry_id, gloss, url):
+        return entry_id in self.animated
+
+
+def test_prefers_a_variant_that_animates():
+    other = ENTRY_PAGE.replace("CAT-1037", "CAT-347")
+    pages = FakePages({entry_page_url(347): other, entry_page_url(1037): ENTRY_PAGE})
+    finder = SignMedia(GlossIndex(GLOSSES), VideoResolver(fetch=pages), poses=FakePoseStore({1037}))
+    found = finder.for_sign(Sign("cat", "cat", "sign"))
+    assert found["gloss"] == "CATf" and found["pose"].startswith("/poses/1037.json")
+
+
+def test_keeps_the_video_when_no_variant_animates():
+    pages = FakePages({entry_page_url(347): ENTRY_PAGE.replace("CAT-1037", "CAT-347")})
+    finder = SignMedia(GlossIndex(GLOSSES), VideoResolver(fetch=pages), poses=FakePoseStore(set()))
+    found = finder.for_sign(Sign("cat", "cat", "sign"))
+    assert found["gloss"] == "CAT8" and "pose" not in found

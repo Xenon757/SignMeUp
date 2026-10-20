@@ -84,11 +84,19 @@ Errors return `{"error": "..."}` with status 400 (no file), 413 (too large), 415
 | What | Source | License | How it's used |
 |---|---|---|---|
 | Sign videos | [ASL Signbank](https://aslsignbank.com) — Hochgesang, J. A., Crasborn, O., & Lillo-Martin, D. (2017–2026). ASL Signbank. https://doi.org/10.6084/m9.figshare.9741788 | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) | Not copied into this repo. The page plays each video from aslsignbank.com and links to its Signbank entry. |
-| Gloss list (`asl_util/data/signbank_glosses.json`) | ASL Signbank's published gloss vocabulary (`asl.ecv`) | CC BY-NC-SA 4.0 | Gloss names and entry IDs only, used to match words to entries. |
+| Gloss list (`asl_util/data/signbank_glosses.json`) | ASL Signbank's published gloss vocabulary (`asl.ecv`) | CC BY-NC-SA 4.0 | Gloss names, entry IDs and English translations, used to match words to entries. |
 | 2D animations (made in the cache folder, not in this repo) | Tracked with [MediaPipe](https://ai.google.dev/edge/mediapipe) from the ASL Signbank videos | CC BY-NC-SA 4.0 (adapted from the videos) | Made the first time a sign is needed, then served from the cache. |
 | Fingerspelling images (`static/img/fingerspelling/`) | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Sign_language_A.svg), from wpclipart.com | Public domain | Bundled unmodified. See `CREDITS.md` there. |
 
-How a word is matched: Signbank glosses are uppercase English words, and a lowercase or digit suffix marks a variant (`CATf`, `CAT8`). A word uses its exact gloss if there is one, otherwise the first variant (of up to three) that has a video. The video's address isn't part of the gloss list, so the server reads the entry's page the first time a sign is needed and caches the result. Words with no matching gloss show as text rather than a loosely related sign.
+How a word is matched: Signbank glosses are uppercase English words, and a lowercase or digit suffix marks a variant (`CATf`, `CAT8`). Signbank also lists English translations for each entry. A word is matched, best first, to:
+
+1. a gloss named after it, then its variants;
+2. a reviewed choice for common words whose sign has another name ("you" → `IX`, "my" → `POSS_1`, "already" → `FINISH`), listed in `asl_util/data/sign_choices.json`. Every choice is one of the entries Signbank lists the word under (a test checks this). They were picked by the developers, not by a fluent signer;
+3. an entry that lists the word as a translation *and* is from the same word family ("limitation" → `LIMIT`, "phone" → `MOBILE-PHONE`). Translations alone aren't trusted, because they also link loosely related or opposite signs ("ever" is listed under `NEVER`).
+
+The first candidate (of up to four) with a video that can be animated is used. Words with no match are fingerspelled, as ASL does for words without a sign; numbers are not. Of the 1,437 distinct signed words among the 2,000 most common English words ([wordfreq](https://github.com/rspeer/wordfreq)), 75% have a Signbank match with these rules, up from 59% with gloss names alone. In the 30-second test video, 64 of 68 words are animated and the other 4 are fingerspelled.
+
+The video's address isn't part of the gloss list, so the server reads the entry's page the first time a sign is needed and caches the result.
 
 Because the Signbank material is licensed for non-commercial use only, this project is non-commercial.
 
@@ -123,3 +131,5 @@ This fork continues the project after the hackathon. Changes so far:
 - Added a 2D animated signer (prototype page) built from the Signbank videos with MediaPipe, paced to keep up with speech
 - Timed each sentence and sign with Whisper's word timestamps, and sign sentence by sentence like closed captions
 - Replaced the word-order rule: spoken order, with question words moved to the end of questions
+- Signed negation and quantifiers (previously dropped), and fixed base-form verbs being mis-lemmatized ("bore" → `BEAR`)
+- Matched more words to signs (Signbank translations of the same word family, plus reviewed choices for common words like pronouns), and fingerspelled the rest

@@ -1,0 +1,31 @@
+{
+  "about": "Signs for common words whose Signbank entry isn't named after them. Each value is a Signbank gloss (without its variant suffix) whose English translations include the word, picked from Signbank's own list. Reviewed by the SignMeUp developers, not by a fluent signer.",
+  "choices": {
+    "you": "IX", "he": "IX", "she": "IX", "they": "IX", "there": "IX",
+    "my": "POSS_", "your": "POSS", "his": "POSS", "her": "POSS", "its": "POSS", "their": "POSS",
+    "yourself": "SELF", "himself": "SELF", "itself": "SELF",
+    "life": "LIVE", "each": "EVERY", "sure": "REAL", "true": "REAL", "truth": "REAL", "lot": "MUCH",
+    "company": "BUSINESS", "let": "ALLOW", "however": "BUT", "although": "BUT", "already": "FINISH",
+    "job": "WORK", "actually": "TRUE-BIZ", "seriously": "TRUE-BIZ", "american": "~AMERICAN",
+    "large": "BIG", "huge": "BIG", "else": "OTHER", "probably": "MAYBE", "perhaps": "MAYBE",
+    "death": "DIE", "dead": "DIE", "hear": "LISTEN", "song": "MUSIC", "cost": "PRICE",
+    "moment": "MINUTE", "road": "STREET", "issue": "PROBLEM", "term": "WORD", "especially": "SPECIAL",
+    "similar": "SAME-AS", "online": "INTERNET", "website": "INTERNET", "private": "SECRET",
+    "wish": "DESIRE", "receive": "GET", "stuff": "THING", "trust": "CONFIDENT", "hi": "HELLO",
+    "mom": "MOTHER", "dad": "FATHER", "entire": "WHOLE", "met": "MEET", "choice": "PICK", "choose": "PICK",
+    "begin": "START", "difficult": "HARD", "loss": "LOSE", "sea": "OCEAN", "below": "UNDER",
+    "offer": "PROPOSE", "response": "ANSWER", "effect": "IMPACT", "expect": "HOPE", "pressure": "STRESS",
+    "treatment": "THERAPY", "nearly": "ALMOST", "speed": "FAST", "photo": "PICTURE", "image": "PICTURE",
+    "lady": "WOMAN", "fear": "SCARED", "nobody": "NOTHING", "brain": "MIND", "hurt": "PAIN",
+    "cash": "MONEY", "necessary": "NEED", "damage": "DESTROY", "ship": "BOAT", "author": "WRITER",
+    "learning": "STUDY", "anyway": "WHATEVER", "matter": "WHATEVER", "currently": "TODAY", "able": "POSSIBLE",
+    "potential": "POSSIBLE", "control": "MANAGE", "land": "GROUND", "site": "PLACE", "security": "PROTECT",
+    "defense": "PROTECT", "military": "ARMY", "worth": "VALUE", "production": "MAKE", "trade": "EXCHANGE",
+    "various": "DIVERSE", "french": "FRANCE", "council": "COMMITTEE", "election": "VOTE", "publish": "PRINT",
+    "minister": "PREACHER", "anti": "AGAINST", "association": "ORGANIZATION", "conference": "MEETING",
+    "describe": "EXPLANATION", "particular": "SPECIFIC", "region": "AREA", "sort": "TYPE", "fair": "EQUAL",
+    "link": "CONNECT", "extra": "ADD", "significant": "IMPORTANT", "global": "INTERNATIONAL",
+    "annual": "EVERY-YEAR", "battle": "FIGHT", "master": "EXPERT", "commercial": "ADVERTISE",
+    "multiple": "MANY", "do": "DO-DO", "store": "SHOP"
+  }
+}

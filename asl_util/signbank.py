@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from .poses import PoseStore
 
 GLOSS_FILE = Path(__file__).resolve().parent / "data" / "signbank_glosses.json"
+CHOICES_FILE = Path(__file__).resolve().parent / "data" / "sign_choices.json"
 SITE = "https://aslsignbank.com"
 USER_AGENT = "SignMeUp (+https://github.com/Xenon757/SignMeUp)"
 
@@ -39,32 +40,88 @@ def gloss_root(gloss: str) -> str:
     return _VARIANT_SUFFIX.sub("", gloss) or gloss
 
 
-class GlossIndex:
-    """Maps an English base word to the Signbank entries that sign it."""
+def _common_prefix(a: str, b: str) -> int:
+    n = 0
+    while n < min(len(a), len(b)) and a[n] == b[n]:
+        n += 1
+    return n
 
-    def __init__(self, glosses: Dict[str, int]):
+
+def same_word_family(word: str, gloss: str) -> bool:
+    """True if one part of the gloss's name is the word or shares its stem.
+
+    "limitation"/LIMIT, "explain"/EXPLANATION, "phone"/MOBILE-PHONE: yes.
+    "ever"/NEVER, "national"/NORMAL: no. Parts are split on "-" and "_", and
+    a leading "~" (Signbank's mark for some entries) is ignored.
+    """
+    word = word.lower()
+    for part in re.split(r"[-_]", gloss_root(gloss).lstrip("~").lower()):
+        if not part:
+            continue
+        shared = _common_prefix(part, word)
+        if part == word or (shared >= 4 and shared >= 0.6 * min(len(part), len(word))):
+            return True
+    return False
+
+
+class GlossIndex:
+    """Maps an English base word to the Signbank entries that sign it.
+
+    Candidates are tried best first:
+      1. a gloss named after the word, then its variants (CAT, then CATf, CAT8);
+      2. a reviewed choice for common words whose sign has another name
+         ("you" -> IX, "already" -> FINISH; see data/sign_choices.json);
+      3. an entry that lists the word as a translation and whose name is from
+         the same word family ("limitation" -> LIMIT, "phone" -> MOBILE-PHONE),
+         most specific entries (fewest translations) first.
+    Translations alone are not trusted: they also link loosely related signs
+    ("ever" is listed under NEVER), so a word with none of the above gets no sign.
+    """
+
+    def __init__(
+        self,
+        glosses: Dict[str, int],
+        translations: Optional[Dict[str, List[str]]] = None,
+        choices: Optional[Dict[str, str]] = None,
+    ):
         self._exact: Dict[str, int] = dict(glosses)
         self._by_root: Dict[str, List[Tuple[str, int]]] = {}
         for gloss, entry_id in sorted(glosses.items()):
             self._by_root.setdefault(gloss_root(gloss), []).append((gloss, entry_id))
+        self._translations = translations or {}
+        self._by_translation: Dict[str, List[str]] = {}
+        for gloss, words in sorted(self._translations.items()):
+            for w in words:
+                self._by_translation.setdefault(w, []).append(gloss)
+        self._choices = {w.lower(): g for w, g in (choices or {}).items()}
 
     @classmethod
-    def load(cls, path: Path = GLOSS_FILE) -> "GlossIndex":
-        return cls(json.loads(path.read_text(encoding="utf-8"))["glosses"])
+    def load(cls, path: Path = GLOSS_FILE, choices_path: Path = CHOICES_FILE) -> "GlossIndex":
+        data = json.loads(path.read_text(encoding="utf-8"))
+        choices = json.loads(choices_path.read_text(encoding="utf-8"))["choices"] if choices_path.exists() else {}
+        return cls(data["glosses"], data.get("translations"), choices)
 
-    def candidates(self, word: str) -> List[Tuple[str, int]]:
-        """Entries for a word, best first: an exact gloss, then its variants.
-
-        Multi-word glosses use hyphens ("ice cream" -> ICE-CREAM). Words with no
-        gloss return [] rather than a loosely related sign.
-        """
-        key = word.strip().upper().replace(" ", "-")
-        if not key:
-            return []
+    def _named(self, key: str) -> List[Tuple[str, int]]:
         found: List[Tuple[str, int]] = []
         if key in self._exact:
             found.append((key, self._exact[key]))
         found.extend(c for c in self._by_root.get(key, []) if c[0] != key)
+        return found
+
+    def translations(self, gloss: str) -> List[str]:
+        return self._translations.get(gloss, [])
+
+    def candidates(self, word: str) -> List[Tuple[str, int]]:
+        """Entries for a word, best first. Multi-word glosses use hyphens ("ice cream" -> ICE-CREAM)."""
+        word = word.strip().lower()
+        if not word:
+            return []
+        found = self._named(word.upper().replace(" ", "-"))
+        if word in self._choices:
+            found += [c for c in self._named(self._choices[word]) if c not in found]
+        family = [g for g in self._by_translation.get(word, []) if same_word_family(word, g)]
+        family.sort(key=lambda g: (len(self.translations(g)), g))
+        found += [(g, self._exact[g]) for g in family if g in self._exact and (g, self._exact[g]) not in found]
         return found
 
 
@@ -142,12 +199,13 @@ LETTER_IMAGE = "/static/img/fingerspelling/{}.svg"
 
 
 class SignMedia:
-    """Picks what to show for each sign: a Signbank video or a letter image.
+    """Picks what to show for each sign: a Signbank video or fingerspelling.
 
     Fingerspelled letters use the bundled public-domain handshape images.
-    Other signs use the first Signbank variant that has a video; signs with
-    no match get None, and the page shows the gloss as text instead.
-    With a PoseStore, video signs also get a 2D pose animation ("pose").
+    Other signs use the first Signbank candidate that has a video (with a
+    PoseStore, the first one whose video also makes a 2D animation, "pose").
+    Words with no video are fingerspelled, as ASL does for words without a
+    sign; numbers are not, since ASL signs them with number handshapes.
     """
 
     def __init__(
@@ -155,7 +213,7 @@ class SignMedia:
         index: GlossIndex,
         resolver: VideoResolver,
         poses: Optional["PoseStore"] = None,
-        max_variants: int = 3,
+        max_variants: int = 4,
         workers: int = 4,
     ):
         self._index = index
@@ -177,21 +235,42 @@ class SignMedia:
         words = {s.gloss for s in signs if s.kind != "fingerspell"}
         with ThreadPoolExecutor(max_workers=self._workers) as pool:
             videos = dict(zip(words, pool.map(self._video_for, words)))
-        return [self.for_sign(s) if s.kind == "fingerspell" else videos[s.gloss] for s in signs]
+        return [
+            self.for_sign(s) if s.kind == "fingerspell" else videos[s.gloss] or self._spelling_for(s)
+            for s in signs
+        ]
+
+    @staticmethod
+    def _spelling_for(sign: Sign) -> Optional[dict]:
+        """Fingerspell a word that has no sign video."""
+        if sign.kind == "number" or not sign.gloss.isalpha() or not sign.gloss.isascii():
+            return None
+        letters = sign.gloss.lower()
+        return {
+            "type": "spell",
+            "letters": letters,
+            "images": [LETTER_IMAGE.format(ch) for ch in letters],
+            "source": "Wikimedia Commons (public domain)",
+        }
 
     def _video_for(self, word: str) -> Optional[dict]:
+        first_video: Optional[dict] = None
         for gloss, entry_id in self._index.candidates(word)[: self._max_variants]:
             url = self._resolver.video_url(entry_id)
-            if url:
-                media = {
-                    "type": "video",
-                    "url": url,
-                    "gloss": gloss,
-                    "page": entry_page_url(entry_id),
-                    "source": "ASL Signbank (CC BY-NC-SA 4.0)",
-                }
-                if self._poses and self._poses.ensure(entry_id, gloss, url):
-                    # The version in the URL makes browsers fetch remade animations instead of old cached ones.
-                    media["pose"] = f"/poses/{entry_id}.json?v={CLIP_VERSION}"
+            if not url:
+                continue
+            media = {
+                "type": "video",
+                "url": url,
+                "gloss": gloss,
+                "page": entry_page_url(entry_id),
+                "source": "ASL Signbank (CC BY-NC-SA 4.0)",
+            }
+            if not self._poses:
                 return media
-        return None
+            if self._poses.ensure(entry_id, gloss, url):
+                # The version in the URL makes browsers fetch remade animations instead of old cached ones.
+                media["pose"] = f"/poses/{entry_id}.json?v={CLIP_VERSION}"
+                return media
+            first_video = first_video or media  # keep looking for a variant that animates
+        return first_video

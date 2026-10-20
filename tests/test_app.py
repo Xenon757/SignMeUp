@@ -51,7 +51,8 @@ def test_upload_attaches_sign_media(client):
     assert hello["media"]["type"] == "video"
     assert hello["media"]["url"] == HELLO_VIDEO
     assert hello["media"]["page"] == "https://aslsignbank.com/dictionary/gloss/482.html"
-    assert aadi["media"] is None
+    assert aadi["media"]["type"] == "spell"  # no sign for it, so it is fingerspelled
+    assert aadi["media"]["letters"] == "aadi"
 
 
 def test_upload_makes_pose_animation_and_serves_it(client):

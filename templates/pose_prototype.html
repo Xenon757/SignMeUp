@@ -172,6 +172,10 @@ function buildTimeline(segments, poses) {
       const word = sign.start ?? seg.start;  // when the sign's English word is said
       if (pose?.frames.length) {
         own.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps, word, char: sign.start_char });
+      } else if (sign.media?.type === 'spell' || (sign.media?.type === 'video' && sign.kind === 'sign' && /^[a-z]+$/i.test(sign.gloss))) {
+        // No sign animation for this word: fingerspell it, as ASL does for words without a sign.
+        const letters = sign.media.letters || sign.gloss;
+        own.push({ kind: 'spell', label: letters.toUpperCase(), natural: LETTER_TIME * letters.length + 0.2, word, char: sign.start_char });
       } else if (sign.kind === 'fingerspell' && last?.kind === 'spell' && last.word === word) {
         last.label += sign.gloss.toUpperCase();   // letters of the same name
         last.natural += LETTER_TIME;
