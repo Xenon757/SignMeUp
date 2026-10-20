@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SignMeUp – 2D signing prototype</title>
+  <style>
+    :root { --bg: #f6f4f0; --ink: #1f2937; --muted: #6b7280; --card: #ffffff; --accent: #2f6f5e; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+    main { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .note { color: var(--muted); font-size: 14px; margin: 0 0 16px; }
+    .panes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 800px) { .panes { grid-template-columns: 1fr; } }
+    .pane { background: var(--card); border-radius: 12px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    video, canvas { width: 100%; display: block; border-radius: 8px; background: #000; }
+    canvas { background: #fbfaf7; aspect-ratio: 4 / 3; }
+    .caption { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; min-height: 28px; }
+    #gloss { font-size: 22px; font-weight: 700; letter-spacing: .02em; }
+    #stats { font-size: 13px; color: var(--muted); }
+    #lag.behind { color: #b45309; font-weight: 600; }
+    #status { margin: 12px 0; font-size: 14px; color: var(--muted); }
+    #spoken { margin-top: 8px; font-size: 15px; min-height: 22px; }
+    .credit { margin-top: 16px; font-size: 12px; color: var(--muted); }
+    .credit a { color: var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>2D signing prototype</h1>
+  <p class="note">Upload a video. The right pane signs it with a figure animated from ASL Signbank sign videos: idle frames trimmed, signs blended together, and sped up (up to 2.5×) to keep pace with the speech.</p>
+  <input id="file" type="file" accept="video/*,audio/*">
+  <div id="status">No video yet.</div>
+
+  <div class="panes">
+    <div class="pane">
+      <video id="video" controls playsinline></video>
+      <div id="spoken"></div>
+    </div>
+    <div class="pane">
+      <canvas id="canvas" width="1200" height="900"></canvas>
+      <div class="caption">
+        <span id="gloss"></span>
+        <span id="stats"><span id="speed"></span> <span id="lag"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <p class="credit">Sign motion derived from <a href="https://aslsignbank.com" target="_blank" rel="noopener">ASL Signbank</a> videos (Hochgesang, Crasborn &amp; Lillo-Martin, CC BY-NC-SA 4.0), tracked with MediaPipe.</p>
+</main>
+
+<script>
+// Timing rules: how fast signs may be played and how long one sign blends into the next.
+const MAX_SPEED = 2.5;
+const BLEND = 0.12;            // seconds
+const LETTER_TIME = 0.18;      // fingerspelled letter, at normal speed
+const WORD_CARD_TIME = 0.45;   // a word with no sign animation, shown as text
+
+const HAND_BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+                    [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+const PALM = [0, 1, 5, 9, 13, 17];
+// Face points are stored outline after outline, in this order and length (see scripts/extract_poses.py).
+const FACE_OUTLINES = [["oval", 36], ["lips", 20], ["leftEye", 16], ["rightEye", 16], ["leftBrow", 10], ["rightBrow", 10]];
+// Pose points: 0 nose, 1-2 shoulders, 3-4 elbows, 5-6 wrists, 7-8 hips.
+const COLORS = { body: '#334a6b', skin: '#e9c9a8', hand: '#c98f62', line: '#1f2937', torso: '#d7dee9' };
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const el = id => document.getElementById(id);
+
+let timeline = [];
+let segments = [];
+let restFrame = null;
+
+el('file').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  video.src = URL.createObjectURL(file);
+  el('status').textContent = 'Transcribing and translating…';
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch('/upload', { method: 'POST', body: form });
+  const data = await res.json();
+  if (!res.ok) { el('status').textContent = data.error || 'Something went wrong.'; return; }
+  segments = data.segments;
+  el('status').textContent = 'Loading sign animations…';
+  const poses = await loadPoses(segments);
+  timeline = buildTimeline(segments, poses);
+  const end = timeline.length ? timeline[timeline.length - 1].start + timeline[timeline.length - 1].length : 0;
+  const animated = timeline.filter(c => c.kind === 'pose').length;
+  el('status').textContent = `${timeline.length} clips (${animated} animated). Speech ends at ${fmt(segments.at(-1).end)}, signing ends at ${fmt(end)}. Press play.`;
+});
+
+async function loadPoses(segments) {
+  const glosses = new Set();
+  segments.forEach(s => s.signs.forEach(sign => { if (sign.media?.type === 'video') glosses.add(sign.media.gloss); }));
+  const poses = {};
+  await Promise.all([...glosses].map(async g => {
+    const res = await fetch(`/static/poses/${encodeURIComponent(g)}.json`);
+    if (res.ok) poses[g] = toBodySpace(await res.json());
+  }));
+  const first = Object.values(poses)[0];
+  if (first) restFrame = first.frames[0];
+  return poses;
+}
+
+// Signbank signers are filmed at different distances and positions. Re-express every
+// point relative to the signer's shoulders (origin between them, 1 unit = shoulder
+// width), measured on the clip's first frame, so all signs share one body size.
+function toBodySpace(clip) {
+  const first = clip.frames.find(f => f.pose);
+  if (!first) return clip;
+  const px = ([x, y]) => [x * clip.width, y * clip.height];
+  const [l, r] = [px(first.pose[1]), px(first.pose[2])];
+  const cx = (l[0] + r[0]) / 2, cy = (l[1] + r[1]) / 2;
+  const unit = Math.hypot(l[0] - r[0], l[1] - r[1]) || 1;
+  const map = pts => pts && pts.map(p => { const [x, y] = px(p); return [(x - cx) / unit, (y - cy) / unit]; });
+  clip.frames = clip.frames.map(f => ({ pose: map(f.pose), leftHand: map(f.leftHand), rightHand: map(f.rightHand), face: map(f.face) }));
+  return clip;
+}
+
+// Turn each spoken segment's signs into clips with start times on the video's clock.
+function buildTimeline(segments, poses) {
+  const clips = [];
+  let cursor = 0;
+  for (const seg of segments) {
+    const segClips = [];
+    for (const sign of seg.signs) {
+      const pose = sign.media?.type === 'video' ? poses[sign.media.gloss] : null;
+      const last = segClips[segClips.length - 1];
+      if (pose) {
+        segClips.push({ kind: 'pose', label: sign.media.gloss, pose, natural: (pose.end - pose.start + 1) / pose.fps });
+      } else if (sign.kind === 'fingerspell' && last?.kind === 'spell') {
+        last.label += sign.gloss.toUpperCase();
+        last.natural += LETTER_TIME;
+      } else if (sign.kind === 'fingerspell') {
+        segClips.push({ kind: 'spell', label: sign.gloss.toUpperCase(), natural: LETTER_TIME + 0.2 });
+      } else {
+        segClips.push({ kind: 'word', label: sign.gloss.toUpperCase(), natural: WORD_CARD_TIME });
+      }
+    }
+    if (!segClips.length) continue;
+    const needed = segClips.reduce((t, c) => t + c.natural, 0) + BLEND * (segClips.length - 1);
+    const speed = Math.min(MAX_SPEED, Math.max(1, needed / Math.max(0.1, seg.end - seg.start)));
+    let t = Math.max(seg.start, cursor);
+    for (const clip of segClips) {
+      Object.assign(clip, { start: t, length: clip.natural / speed, speed, segEnd: seg.end });
+      t += clip.length + BLEND / speed;
+      clips.push(clip);
+    }
+    cursor = t;
+  }
+  return clips;
+}
+
+// ---------- what to show at time t ----------
+
+function lerp(a, b, k) {
+  if (!a) return b;
+  if (!b) return a;
+  return a.map((p, i) => [p[0] + (b[i][0] - p[0]) * k, p[1] + (b[i][1] - p[1]) * k]);
+}
+
+function lerpFrame(a, b, k) {
+  if (!a || !b) return a || b;
+  return { pose: lerp(a.pose, b.pose, k), leftHand: lerp(a.leftHand, b.leftHand, k),
+           rightHand: lerp(a.rightHand, b.rightHand, k), face: lerp(a.face, b.face, k) };
+}
+
+function poseFrame(clip, progress) {
+  const p = clip.pose;
+  const f = Math.min(p.end, p.start + Math.floor(progress * (p.end - p.start + 1)));
+  return p.frames[f];
+}
+
+const firstFrame = clip => clip.kind === 'pose' ? clip.pose.frames[clip.pose.start] : null;
+const lastFrame = clip => clip.kind === 'pose' ? clip.pose.frames[clip.pose.end] : null;
+
+function stateAt(t) {
+  let held = restFrame;
+  for (let i = 0; i < timeline.length; i++) {
+    const clip = timeline[i];
+    if (t < clip.start) {
+      // Between the previous clip and this one: blend if the gap is short, otherwise hold.
+      const prev = timeline[i - 1];
+      const gap = prev ? clip.start - (prev.start + prev.length) : Infinity;
+      const into = prev ? t - (prev.start + prev.length) : 0;
+      if (prev && gap <= BLEND * 1.01) {
+        return { frame: lerpFrame(lastFrame(prev) || held, firstFrame(clip) || held, into / gap), clip: null };
+      }
+      return { frame: held, clip: null };
+    }
+    if (t < clip.start + clip.length) {
+      const frame = clip.kind === 'pose' ? poseFrame(clip, (t - clip.start) / clip.length) : held;
+      return { frame, clip };
+    }
+    held = lastFrame(clip) || held;
+  }
+  return { frame: held, clip: null };
+}
+
+// ---------- drawing ----------
+
+// Body space -> canvas: shoulders centred a little below the middle, about 3.6 shoulder widths across.
+function toCanvas([x, y]) {
+  const unit = canvas.width / 3.6;
+  return [canvas.width / 2 + x * unit, canvas.height * 0.62 + y * unit];
+}
+
+function path(points, close) {
+  ctx.beginPath();
+  points.forEach((p, i) => { const [x, y] = toCanvas(p); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  if (close) ctx.closePath();
+}
+
+function line(a, b, width, color) {
+  ctx.lineWidth = width; ctx.strokeStyle = color; ctx.lineCap = 'round';
+  path([a, b]); ctx.stroke();
+}
+
+function faceParts(face) {
+  const parts = {};
+  let i = 0;
+  for (const [name, n] of FACE_OUTLINES) { parts[name] = face.slice(i, i + n); i += n; }
+  return parts;
+}
+
+function drawHand(hand, wrist) {
+  if (!hand) return;
+  const s = canvas.width / 900;
+  ctx.fillStyle = COLORS.skin;
+  path(PALM.map(i => hand[i]), true); ctx.fill();
+  for (const [a, b] of HAND_BONES) line(hand[a], hand[b], 9 * s, COLORS.hand);
+  for (const p of hand) { const [x, y] = toCanvas(p); ctx.beginPath(); ctx.arc(x, y, 4.5 * s, 0, 7); ctx.fillStyle = COLORS.line; ctx.fill(); }
+}
+
+function draw(frame) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!frame?.pose) return;
+  const s = canvas.width / 900;
+  const [nose, lSh, rSh, lEl, rEl, lWr, rWr, lHip, rHip] = frame.pose;
+
+  // Torso
+  ctx.fillStyle = COLORS.torso;
+  path([lSh, rSh, rHip, lHip], true); ctx.fill();
+
+  // Head
+  if (frame.face) {
+    const f = faceParts(frame.face);
+    ctx.fillStyle = COLORS.skin; path(f.oval, true); ctx.fill();
+    ctx.fillStyle = COLORS.line;
+    for (const part of ['leftBrow', 'rightBrow']) { path(f[part], true); ctx.fill(); }
+    ctx.lineWidth = 3 * s; ctx.strokeStyle = COLORS.line;
+    for (const part of ['leftEye', 'rightEye']) { path(f[part], true); ctx.stroke(); }
+    ctx.fillStyle = '#9b4a4a'; path(f.lips, true); ctx.fill();
+  } else {
+    const [x, y] = toCanvas(nose); const r = Math.abs(toCanvas(lSh)[0] - toCanvas(rSh)[0]) * 0.32;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fillStyle = COLORS.skin; ctx.fill();
+  }
+
+  // Arms end at the tracked hand's wrist when there is one, so arm and hand stay joined.
+  const lHandWrist = frame.leftHand ? frame.leftHand[0] : lWr;
+  const rHandWrist = frame.rightHand ? frame.rightHand[0] : rWr;
+  for (const [sh, elb, wr] of [[lSh, lEl, lHandWrist], [rSh, rEl, rHandWrist]]) {
+    line(sh, elb, 26 * s, COLORS.body);
+    line(elb, wr, 22 * s, COLORS.body);
+  }
+  line(lSh, rSh, 26 * s, COLORS.body);
+
+  drawHand(frame.leftHand);
+  drawHand(frame.rightHand);
+}
+
+function drawCard(text) {
+  ctx.fillStyle = 'rgba(255,255,255,.88)';
+  const w = canvas.width * 0.6, h = canvas.height * 0.2;
+  ctx.fillRect((canvas.width - w) / 2, canvas.height * 0.72, w, h);
+  ctx.fillStyle = COLORS.line;
+  ctx.font = `600 ${Math.round(canvas.height * 0.08)}px system-ui, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, canvas.width / 2, canvas.height * 0.82);
+}
+
+function fmt(t) { return `${t.toFixed(1)}s`; }
+
+// Signing can run past the end of the video, so after it ends the clock keeps going.
+let endedAt = null;
+video.addEventListener('ended', () => { endedAt = performance.now(); });
+video.addEventListener('play', () => { endedAt = null; });
+video.addEventListener('seeked', () => { endedAt = null; });
+
+function tick() {
+  const t = endedAt === null ? video.currentTime : video.duration + (performance.now() - endedAt) / 1000;
+  const { frame, clip } = stateAt(t);
+  draw(frame);
+  if (clip && clip.kind !== 'pose') drawCard(clip.kind === 'spell' ? `${clip.label} (spelled)` : clip.label);
+  el('gloss').textContent = clip ? clip.label : '';
+  el('speed').textContent = clip ? `${clip.speed.toFixed(1)}× speed` : '';
+  const lag = clip ? t - clip.segEnd : 0;
+  el('lag').textContent = lag > 0 ? `· ${lag.toFixed(1)}s behind speech` : '';
+  el('lag').className = lag > 0 ? 'behind' : '';
+  const seg = segments.find(s => t >= s.start && t < s.end);
+  el('spoken').textContent = seg ? seg.text : '';
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

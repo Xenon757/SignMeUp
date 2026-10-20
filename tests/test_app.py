@@ -23,6 +23,12 @@ def test_home_page_renders(client):
     assert b"SignMeUp" in res.data
 
 
+def test_pose_prototype_page_renders(client):
+    res = client.get("/prototype")
+    assert res.status_code == 200
+    assert b"2D signing prototype" in res.data
+
+
 def test_healthz(client):
     assert client.get("/healthz").get_json() == {"status": "ok"}
 

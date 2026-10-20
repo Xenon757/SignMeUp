@@ -43,6 +43,10 @@ def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, me
     def home():
         return flask.render_template("index.html")
 
+    @app.get("/prototype")
+    def pose_prototype():
+        return flask.render_template("pose_prototype.html")
+
     @app.get("/healthz")
     def healthz():
         return {"status": "ok"}
