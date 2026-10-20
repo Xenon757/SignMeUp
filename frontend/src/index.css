@@ -91,14 +91,63 @@ li.active .marker { border-color: var(--accent); border-top-color: transparent; 
 .result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .result-head h2 { font-size: 1.125rem; margin: 0; }
 .player-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
-button.optimize { background: var(--card); color: var(--accent); }
-button.optimize[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+button.toggle { background: var(--card); color: var(--accent); }
+button.toggle[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+.layout-controls label { font-size: 0.9375rem; color: var(--muted); }
+.segmented { display: inline-flex; border: 1px solid var(--accent); border-radius: 999px; overflow: hidden; }
+.segmented button { border: 0; border-radius: 0; background: var(--card); color: var(--accent); min-height: 40px; padding: 6px 14px; }
+.segmented button + button { border-left: 1px solid var(--accent); }
+.segmented button[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+
+/* The viewer holds the media, the signer and the subtitles. The same elements are used in
+   every layout; only the grid changes, so the signer's canvas is never re-created. */
+.viewer { display: grid; gap: 12px; }
+.media-box, .signer-box { min-width: 0; }
+.media-box video { width: 100%; display: block; border-radius: 12px; background: #000; max-height: 72vh; }
+.signer-box canvas { width: 100%; aspect-ratio: 1 / 1; display: block; border-radius: 12px; background: var(--canvas); }
+.subtitles { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px 14px; }
+.subtitles .signing { margin: 0 0 4px; }
+.subtitles .caption { margin: 0; font-size: 0.9375rem; color: var(--muted); }
+
+/* In the video: like a TV interpreter, the signer sits in a solid box in one corner of the
+   video (both share one grid cell). Bottom corners leave room for the video's controls. */
+.viewer.overlay { grid-template-columns: 1fr; }
+.viewer.overlay .media-box { grid-area: 1 / 1; }
+.viewer.overlay .signer-box {
+  grid-area: 1 / 1; z-index: 1; margin: 12px; padding: 4px; border-radius: 14px;
+  background: var(--canvas); box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35); border: 2px solid #fff;
+}
+.viewer.overlay .signer-box canvas { border-radius: 10px; }
+.viewer.overlay.small .signer-box { width: 24%; }
+.viewer.overlay.medium .signer-box { width: 32%; }
+.viewer.overlay.large .signer-box { width: 42%; }
+.viewer.overlay.bottom-right .signer-box { justify-self: end; align-self: end; margin-bottom: 56px; }
+.viewer.overlay.bottom-left .signer-box { justify-self: start; align-self: end; margin-bottom: 56px; }
+.viewer.overlay.top-right .signer-box { justify-self: end; align-self: start; }
+.viewer.overlay.top-left .signer-box { justify-self: start; align-self: start; }
+
+/* Side by side: two columns on wide screens, stacked on phones. */
+.viewer.side { grid-template-columns: 1fr; }
+.viewer.side .media-box, .viewer.side .signer-box { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px; }
+@media (min-width: 860px) {
+  .viewer.side { grid-template-columns: 1fr 1fr; align-items: start; }
+  .viewer.side .subtitles { grid-column: 1 / -1; }
+}
+
+/* Full screen: the whole viewer fills the screen, subtitles in a dark strip at the bottom. */
+.viewer:fullscreen { background: #111; padding: 16px; grid-template-rows: minmax(0, 1fr) auto; align-content: stretch; }
+.viewer:fullscreen .media-box { display: flex; align-items: center; justify-content: center; min-height: 0; }
+.viewer:fullscreen .media-box video { max-height: 100%; height: 100%; width: 100%; object-fit: contain; border-radius: 0; }
+.viewer.side:fullscreen .media-box, .viewer.side:fullscreen .signer-box { background: transparent; box-shadow: none; }
+.viewer.side:fullscreen .signer-box canvas { max-height: calc(100vh - 160px); width: auto; margin: 0 auto; }
+.viewer:fullscreen .subtitles { background: rgba(0, 0, 0, 0.75); color: #fff; box-shadow: none; text-align: center; }
+.viewer:fullscreen .subtitles .caption, .viewer:fullscreen .subtitles .stats { color: #c9cdd3; }
 
 .stage { display: grid; grid-template-columns: 1fr; gap: 16px; }
 @media (min-width: 860px) { .stage { grid-template-columns: 1fr 1fr; align-items: start; } }
 .pane { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px; min-width: 0; }
 .pane video { width: 100%; display: block; border-radius: 10px; background: #000; max-height: 70vh; }
-.pane canvas { width: 100%; aspect-ratio: 1 / 1; display: block; border-radius: 10px; background: var(--canvas); }
+.pane canvas { width: 100%; aspect-ratio: 1 / 1; display: block; border-radius: 10px; background: var(--canvas); }  /* compare page */
 .audio-card { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 12px; background: var(--canvas); border-radius: 10px; }
 .audio-card span { font-size: 2.5rem; color: var(--accent); }
 .audio-card audio { width: 100%; }
@@ -119,10 +168,13 @@ button.optimize[aria-pressed='true'] { background: var(--accent); color: var(--a
   .player-controls .muted { font-size: 0.8125rem; }
   .stage { gap: 10px; }
   .pane { padding: 8px; }
-  .pane video { max-height: 30vh; }
-  .caption { margin-top: 6px; font-size: 0.9375rem; }
-  .signer-pane canvas { width: auto; height: min(42vh, calc(100vw - 48px)); margin: 0 auto; }
-  .signing { font-size: 1.0625rem; margin-top: 8px; min-height: 2.5em; }
+  .media-box video { max-height: 30vh; }
+  .viewer.side .signer-box canvas { width: auto; height: min(40vh, calc(100vw - 52px)); margin: 0 auto; }
+  .signing { font-size: 1.0625rem; min-height: 2.5em; }
+  .viewer.overlay .signer-box { margin: 6px; margin-bottom: 44px; }
+  .player-controls button, .segmented button { min-height: 36px; padding: 4px 12px; font-size: 0.875rem; }
+  .player-controls select { min-height: 36px; padding: 4px 8px; font-size: 0.875rem; }
+  .viewer.overlay.top-right .signer-box, .viewer.overlay.top-left .signer-box { margin-bottom: 6px; }
 }
 
 /* Compare */

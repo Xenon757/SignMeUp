@@ -24,6 +24,40 @@ function Highlighted({ text, char }: { text: string; char: number | null }) {
   );
 }
 
+type Layout = 'overlay' | 'side';
+type Corner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+type Size = 'small' | 'medium' | 'large';
+interface Prefs { layout: Layout; corner: Corner; size: Size }
+
+const CORNERS: Corner[] = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
+const SIZES: Size[] = ['small', 'medium', 'large'];
+const PREFS_KEY = 'signmeup.player';
+
+/**
+ * Where the signer goes. By default it sits in a corner box inside the video, like a TV
+ * interpreter, on screens wide enough for that box to be readable; phones start side by side
+ * (stacked). The viewer's last choice is remembered on this device.
+ */
+function loadPrefs(): Prefs {
+  const wide = typeof window !== 'undefined' && window.matchMedia?.('(min-width: 860px)').matches;
+  const fallback: Prefs = { layout: wide ? 'overlay' : 'side', corner: 'bottom-right', size: 'medium' };
+  try {
+    const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? 'null');
+    if (!saved) return fallback;
+    return {
+      layout: saved.layout === 'side' || saved.layout === 'overlay' ? saved.layout : fallback.layout,
+      corner: CORNERS.includes(saved.corner) ? saved.corner : fallback.corner,
+      size: SIZES.includes(saved.size) ? saved.size : fallback.size,
+    };
+  } catch {
+    return fallback; // storage unavailable (private mode, blocked)
+  }
+}
+
+function savePrefs(prefs: Prefs) {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* not essential */ }
+}
+
 interface View {
   caption: Segment | null;
   latest: Clip | null;
@@ -34,7 +68,26 @@ interface View {
 export function Player({ src, audioOnly, segments, poses }: Props) {
   const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const viewer = useRef<HTMLDivElement>(null);
   const [optimized, setOptimized] = useState(false);
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
+  const [fullscreen, setFullscreen] = useState(false);
+  // Audio has no picture to put the signer in, so it is always side by side.
+  const layout: Layout = audioOnly ? 'side' : prefs.layout;
+  const update = (change: Partial<Prefs>) => setPrefs(p => { const next = { ...p, ...change }; savePrefs(next); return next; });
+
+  // Full screen is for the whole viewer (video, signer and subtitles), not just the video:
+  // the browser's own video full screen would leave the signer behind.
+  const canFullscreen = typeof document !== 'undefined' && document.fullscreenEnabled;
+  useEffect(() => {
+    const onChange = () => setFullscreen(document.fullscreenElement === viewer.current);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else viewer.current?.requestFullscreen().catch(() => {});
+  };
   const [view, setView] = useState<View>({ caption: null, latest: null, playing: null });
 
   const rest = useMemo(() => restFrameOf(poses), [poses]);
@@ -105,7 +158,7 @@ export function Player({ src, audioOnly, segments, poses }: Props) {
       <div className="player-controls">
         <button
           type="button"
-          className="optimize"
+          className="toggle"
           aria-pressed={optimized}
           onClick={() => setOptimized(o => !o)}
           title="Slow the video down so the signs have time to be read"
@@ -117,8 +170,40 @@ export function Player({ src, audioOnly, segments, poses }: Props) {
         </span>
       </div>
 
-      <div className="stage">
-        <section className="pane media-pane" aria-label="Your upload">
+      {!audioOnly && (
+        <div className="player-controls layout-controls">
+          <div className="segmented" role="group" aria-label="Where the signer goes">
+            <button type="button" aria-pressed={layout === 'overlay'} onClick={() => update({ layout: 'overlay' })}>In the video</button>
+            <button type="button" aria-pressed={layout === 'side'} onClick={() => update({ layout: 'side' })}>Side by side</button>
+          </div>
+          {layout === 'overlay' && (
+            <>
+              <label>
+                Corner{' '}
+                <select value={prefs.corner} onChange={e => update({ corner: e.target.value as Corner })}>
+                  {CORNERS.map(c => <option key={c} value={c}>{c.replace('-', ' ')}</option>)}
+                </select>
+              </label>
+              <div className="segmented" role="group" aria-label="Signer size">
+                {SIZES.map(size => (
+                  <button key={size} type="button" aria-pressed={prefs.size === size} onClick={() => update({ size })}>
+                    {size[0].toUpperCase() + size.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {canFullscreen && (
+            <button type="button" className="secondary" onClick={toggleFullscreen}>
+              {fullscreen ? 'Exit full screen' : 'Full screen'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* The same elements in every layout (only CSS changes), so the canvas is never re-created. */}
+      <div ref={viewer} className={`viewer ${layout} ${prefs.corner} ${prefs.size}`}>
+        <div className="media-box" aria-label="Your upload">
           {audioOnly ? (
             <div className="audio-card">
               <span aria-hidden="true">♪</span>
@@ -127,15 +212,16 @@ export function Player({ src, audioOnly, segments, poses }: Props) {
           ) : (
             <video ref={media} src={src} controls playsInline preload="auto" />
           )}
-          <p className="caption">
-            <span className="tag">Spoken</span> {caption?.text ?? ' '}
-          </p>
-        </section>
-
-        <section className="pane signer-pane" aria-label="ASL signing">
+        </div>
+        <div className="signer-box" aria-label="ASL signing">
           <canvas ref={canvas} width={1000} height={1000} role="img" aria-label={playing ? `Signing ${playing.label}` : 'Signer'} />
+        </div>
+        <div className="subtitles">
           <p className="signing" aria-live="polite">
-            {latest ? <Highlighted text={latest.text} char={latest.char} /> : ' '}
+            {latest ? <Highlighted text={latest.text} char={latest.char} /> : '\u00a0'}
+          </p>
+          <p className="caption">
+            <span className="tag">Spoken</span> {caption?.text ?? '\u00a0'}
           </p>
           <p className="stats">
             {playing && (
@@ -145,7 +231,7 @@ export function Player({ src, audioOnly, segments, poses }: Props) {
               </>
             )}
           </p>
-        </section>
+        </div>
       </div>
       <p className="summary muted">{summary}</p>
     </div>
