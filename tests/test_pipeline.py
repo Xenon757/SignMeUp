@@ -1,6 +1,6 @@
 """Tests for timing each sign by when its word was spoken."""
 
-from asl_util.pipeline import spoken_at, translate_video, word_positions
+from asl_util.pipeline import split_sentences, spoken_at, translate_video, word_positions
 from asl_util.transcribe import Segment, SpokenWord
 from asl_util.translate import Sign
 
@@ -50,3 +50,40 @@ def test_each_sign_starts_when_its_word_was_spoken():
 def test_signs_fall_back_to_segment_start_without_word_timing():
     out = translate_video("v.mp4", FakeTranscriber(segments=[Segment(3.0, 4.0, TEXT)]), ReorderingGlosser())
     assert {s["start"] for s in out["segments"][0]["signs"]} == {3.0}
+
+
+THREE_SENTENCES = Segment(0.0, 8.4, "This is long. What's that? It's long", (
+    SpokenWord(0.0, 0.3, "This"), SpokenWord(0.3, 0.5, "is"), SpokenWord(0.5, 1.0, "long."),
+    SpokenWord(2.0, 2.4, "What's"), SpokenWord(2.4, 2.9, "that?"),
+    SpokenWord(4.0, 4.3, "It's"), SpokenWord(4.3, 8.4, "long"),
+))
+
+
+def test_segment_is_split_into_sentences_with_their_own_timing():
+    sentences = split_sentences(THREE_SENTENCES)
+    assert [(s.start, s.end, s.text) for s in sentences] == [
+        (0.0, 1.0, "This is long."),
+        (2.0, 2.9, "What's that?"),
+        (4.0, 8.4, "It's long"),
+    ]
+    assert [w.text for w in sentences[1].words] == ["What's", "that?"]
+
+
+def test_sentence_ending_inside_quotes_still_splits():
+    seg = Segment(0.0, 2.0, 'He said "go." Then left.', (
+        SpokenWord(0.0, 0.5, "He"), SpokenWord(0.5, 0.8, "said"), SpokenWord(0.8, 1.0, '"go."'),
+        SpokenWord(1.2, 1.5, "Then"), SpokenWord(1.5, 2.0, "left."),
+    ))
+    assert [s.text for s in split_sentences(seg)] == ['He said "go."', "Then left."]
+
+
+def test_segment_without_word_timing_stays_whole():
+    seg = Segment(0.0, 3.0, "One. Two.")
+    assert split_sentences(seg) == [seg]
+
+
+def test_video_output_has_one_segment_per_sentence():
+    from conftest import FakeGlosser
+    out = translate_video("v.mp4", FakeTranscriber(segments=[THREE_SENTENCES]), FakeGlosser())
+    assert [(s["start"], s["text"]) for s in out["segments"]] == [(0.0, "This is long."), (2.0, "What's that?"), (4.0, "It's long")]
+    assert out["transcript"] == THREE_SENTENCES.text

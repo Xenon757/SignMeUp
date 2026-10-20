@@ -50,19 +50,43 @@ def spoken_at(start_char: Optional[int], positions: List[Tuple[int, float]], fal
     return positions[max(i, 0)][1]
 
 
+SENTENCE_ENDINGS = (".", "?", "!")
+
+
+def split_sentences(seg: Segment) -> List[Segment]:
+    """Split a Whisper segment into one segment per sentence.
+
+    Whisper's segments can hold several sentences. Like closed captions, the
+    page shows and signs one sentence at a time, so each sentence gets its own
+    start and end from its first and last word. Segments without word timings
+    are left whole.
+    """
+    if not seg.words:
+        return [seg]
+    groups: List[List[SpokenWord]] = [[]]
+    for word in seg.words:
+        groups[-1].append(word)
+        if word.text.rstrip("\"')").endswith(SENTENCE_ENDINGS):
+            groups.append([])
+    return [
+        Segment(words[0].start, words[-1].end, " ".join(w.text for w in words), tuple(words))
+        for words in groups
+        if words
+    ]
+
+
 def translate_video(
     media_path: str | Path, transcriber: Transcriber, glosser: Glosser, media: Optional[MediaFinder] = None
 ) -> dict:
-    """Transcribe a video and convert each spoken segment into ASL signs.
+    """Transcribe a video and convert each spoken sentence into ASL signs.
 
     Returns a JSON-ready dict:
       transcript: the full English transcript
-      segments:   [{start, end, text, signs: [{text, gloss, kind, start, media}]}]
+      segments:   one per sentence: [{start, end, text, signs: [{text, gloss, kind, start, media}]}]
       result:     every gloss joined by spaces (what the current page displays)
 
-    A sign's `start` is when its English word was spoken. ASL word order can
-    put a sign before a word that is said later, so signs aren't always in time
-    order; a player should never show a sign before its `start`.
+    A sign's `start` is when its English word was spoken. Signs are in ASL
+    order, which isn't always the order the words were said.
 
     `media` is what to show for a sign (a video or image), or None if there is
     nothing to show; it is only added when a media finder is passed in.
@@ -70,7 +94,7 @@ def translate_video(
     segments = transcriber.transcribe(media_path)
     out_segments = []
     all_signs: List[Sign] = []
-    for seg in segments:
+    for seg in (sentence for segment in segments for sentence in split_sentences(segment)):
         signs = glosser.to_signs(seg.text)
         all_signs.extend(signs)
         positions = word_positions(seg.text, seg.words)
