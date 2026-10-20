@@ -49,11 +49,13 @@
       opacity: 0;
       transform: translateY(20px);
     }
-    .asl-overlay img {
-      max-width: 80px;
-      max-height: 80px;
+    .asl-overlay img,
+    .asl-overlay video {
+      width: 160px;
+      height: 120px;
       object-fit: contain;
       border-radius: 8px;
+      background: white;
     }
     .asl-overlay .word-text {
       color: white;
@@ -63,13 +65,17 @@
       margin-top: 8px;
       text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
     }
-    .asl-overlay .lexical-class {
+    .asl-overlay .sign-source {
       color: #e5e7eb;
       font-size: 12px;
       font-weight: 400;
       text-align: center;
       margin-top: 4px;
       text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    }
+    .asl-overlay .sign-source a {
+      color: white;
+      text-decoration: underline;
     }
 
     .overlay-toggle {
@@ -283,7 +289,6 @@
   </div>
 
   <script>
-    let aslDictionary = {};
     let currentSigns = [];
     let currentSignIndex = 0;
     let slideInterval = null;
@@ -309,8 +314,6 @@
 
       const signIndicators = document.getElementById('sign-indicators');
       const signCounter = document.getElementById('sign-counter');
-
-      loadASLDictionary();
 
       fileUpload.addEventListener('change', (e) => handleFile(e.target.files[0]));
 
@@ -389,9 +392,9 @@
               
               setTimeout(() => {
                 processingIndicator.classList.add('hidden');
-                if (data.result) {
+                if (data.segments) {
                   videoDisplay.classList.remove('hidden');
-                  displayASLSigns(data.result);
+                  displayASLSigns(data.segments);
                   videoDisplay.scrollIntoView({ behavior: 'smooth' });
                 } else {
                   document.getElementById('upload-container').classList.remove('hidden');
@@ -436,74 +439,8 @@
         }
       }
 
-      async function loadASLDictionary() {
-        try {
-          const response = await fetch('/static/ASL-LEX View Data.csv');
-          if (!response.ok) return;
-          
-          const csvContent = await response.text();
-          const lines = csvContent.split('\n');
-          const headers = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim());
-          
-          const entryIdIndex = headers.findIndex(h => h.toLowerCase().includes('entry id'));
-          const handshapeImageIndex = headers.findIndex(h => h.toLowerCase().includes('handshape image'));
-          const lexicalClassIndex = headers.findIndex(h => h.toLowerCase().includes('lexical class'));
-          
-          if (entryIdIndex === -1 || handshapeImageIndex === -1) return;
-
-          for (let i = 1; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-            
-            const row = parseCSVLine(line);
-            const entryId = row[entryIdIndex]?.replace(/^"|"$/g, '').trim();
-            const handshapeImage = row[handshapeImageIndex]?.replace(/^"|"$/g, '').trim();
-            
-            if (entryId && handshapeImage && handshapeImage !== 'N/A' && handshapeImage.includes('src=')) {
-              const word = entryId.replace(/_/g, ' ').toLowerCase();
-              const match = handshapeImage.match(/src="([^"]+)"/);
-              if (match) {
-                const lexicalClass = row[lexicalClassIndex]?.replace(/^"|"$/g, '').trim() || 'Unknown';
-                aslDictionary[word] = {
-                  imageUrl: match[1],
-                  lexicalClass: lexicalClass
-                };
-              }
-            }
-          }
-        } catch (error) {
-          console.warn('Could not load ASL dictionary');
-        }
-      }
-
-      function parseCSVLine(line) {
-        const result = [];
-        let current = '';
-        let inQuotes = false;
-        
-        for (let i = 0; i < line.length; i++) {
-          const char = line[i];
-          if (char === '"') {
-            if (inQuotes && line[i + 1] === '"') {
-              current += '"';
-              i++;
-            } else {
-              inQuotes = !inQuotes;
-            }
-          } else if (char === ',' && !inQuotes) {
-            result.push(current);
-            current = '';
-          } else {
-            current += char;
-          }
-        }
-        result.push(current);
-        return result;
-      }
-
-      function displayASLSigns(resultText) {
-        const words = resultText.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(word => word.length > 0);
-        currentSigns = words.map(word => ({ word, signData: aslDictionary[word] }));
+      function displayASLSigns(segments) {
+        currentSigns = segments.flatMap(segment => segment.signs);
         
         if (currentSigns.length === 0) return;
         
@@ -532,21 +469,39 @@
 
       function showSignOverlay(index) {
         if (index < 0 || index >= currentSigns.length) return;
-        
-        const { word, signData } = currentSigns[index];
-        
-        if (signData?.imageUrl) {
-          currentSignOverlay.innerHTML = `
-            <img src="${signData.imageUrl}" alt="${word}" onerror="this.style.display='none';">
-            <div class="word-text">${word.toUpperCase()}</div>
-            <div class="lexical-class">${signData.lexicalClass}</div>
-          `;
-        } else {
-          currentSignOverlay.innerHTML = `
-            <div class="word-text" style="margin-top: 0;">${word.toUpperCase()}</div>
-            <div class="lexical-class">No sign image available</div>
-          `;
+
+        // Built with DOM calls, not innerHTML, because the words come from the transcript.
+        const sign = currentSigns[index];
+        const media = sign.media;
+        currentSignOverlay.replaceChildren();
+
+        if (media?.type === 'video') {
+          const video = document.createElement('video');
+          Object.assign(video, { src: media.url, autoplay: true, muted: true, loop: true, playsInline: true });
+          video.setAttribute('aria-label', `ASL sign for ${sign.gloss}`);
+          currentSignOverlay.append(video);
+        } else if (media?.type === 'image') {
+          const img = document.createElement('img');
+          img.src = media.url;
+          img.alt = `Fingerspelled letter ${sign.gloss.toUpperCase()}`;
+          currentSignOverlay.append(img);
         }
+
+        const word = document.createElement('div');
+        word.className = 'word-text';
+        word.textContent = sign.gloss.toUpperCase();
+        currentSignOverlay.append(word);
+
+        const source = document.createElement('div');
+        source.className = 'sign-source';
+        if (media?.type === 'video') {
+          const link = document.createElement('a');
+          Object.assign(link, { href: media.page, target: '_blank', rel: 'noopener', textContent: 'ASL Signbank' });
+          source.append('Video: ', link);
+        } else if (!media) {
+          source.textContent = 'No sign video available';
+        }
+        currentSignOverlay.append(source);
       }
 
       function startSlideshow() {
