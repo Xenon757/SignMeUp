@@ -3,9 +3,9 @@
 SignMeUp bridges the gap for deaf and hard-of-hearing viewers by turning English captions into ASL subtitles, making stories, lessons, and conversations truly accessible to everyone.
 
 ## What it does
-A user uploads a video. SignMeUp transcribes its audio with OpenAI's Whisper model, keeping the time each phrase was spoken. Each phrase goes through an English-to-ASL translation step that applies ASL grammar rules. Each sign is shown over the video as a reference video from [ASL Signbank](https://aslsignbank.com), and fingerspelled names are shown letter by letter as handshape images.
+A user uploads a video or audio file. SignMeUp transcribes it with OpenAI's Whisper model, keeping the time each word was spoken. Each sentence goes through an English-to-ASL translation step that applies ASL grammar rules, and the page signs it with a 2D animated figure next to the video, built from reference videos on [ASL Signbank](https://aslsignbank.com). While the file is processed, the page shows each real stage (uploading, transcribing, translating sentence by sentence, preparing the sign animations word by word). The layout stacks on phones so the video and the figure fit on one screen.
 
-A second page, `/prototype`, signs the video with a 2D animated figure instead. Dictionary videos are too slow to keep up with speech (each one starts and ends with the hands at rest, and runs about 2.5 seconds), so the figure plays only the part of each sign where the hands are moving, and moves straight from one sign into the next. Each sentence is signed in one of two modes. When the speech is slow enough, each sign is lined up with its word (starting within half a second of it). In fast stretches, it works like closed captions instead: the sentence's signs start when the sentence starts and share the time until the next one. Signs play at 1.5×, and up to 3× when needed. Under the figure, the sentence being signed is shown with the current word highlighted. Words with no sign are fingerspelled, shown as a row of letter handshapes that is never sped up.
+Dictionary videos are too slow to keep up with speech (each one starts and ends with the hands at rest, and runs about 2.5 seconds), so the figure plays only the part of each sign where the hands are moving, and moves straight from one sign into the next. Each sentence is signed in one of two modes. When the speech is slow enough, each sign is lined up with its word (starting within half a second of it). In fast stretches, it works like closed captions instead: the sentence's signs start when the sentence starts and share the time until the next one. Signs play at 1.5×, and up to 3× when needed. Under the figure, the sentence being signed is shown with the current word highlighted. Words with no sign are fingerspelled, shown as a row of letter handshapes that is never sped up.
 
 Tracked points are smoothed over time (a Gaussian over about 3 frames), which cuts finger jitter by about two thirds on the test video's signs. When the hands overlap, the tracker sometimes reports one hand as both; that duplicate is removed and the hidden hand is found again by running MediaPipe's hand model on a zoomed-in crop around its wrist. Hands are drawn as solid shapes with fingers in depth order, the nearer arm and hand in front, and the palm is shaded differently from the back of the hand so palm orientation is visible. `/compare` plays any animated sign's Signbank video next to its animation, frame by frame, to check accuracy.
 
@@ -28,14 +28,16 @@ Words are only ever moved later in a sentence, never earlier. Signs appear once 
 
 | Path | What it does |
 |---|---|
-| `app.py` | Flask app: the page, `POST /upload`, `GET /healthz` |
+| `app.py` | Flask app: serves the React app, the jobs API (`/api/jobs`), `POST /upload`, sign animations (`/poses/`) and `GET /healthz` |
+| `asl_util/jobs.py` | Runs uploads in the background, one at a time, and tracks their progress |
 | `asl_util/transcribe.py` | Whisper speech-to-text, returning timestamped segments |
 | `asl_util/translate.py` | English → ASL rules (pure functions) and the Stanza parser wrapper |
 | `asl_util/signbank.py` | Finds the ASL Signbank video for each sign, and the letter image for fingerspelling |
 | `asl_util/poses.py` | Turns a sign video into a 2D animation (MediaPipe tracking, trimming, shoulder-relative coordinates) and caches it |
 | `asl_util/data/` | ASL Signbank's gloss list (rebuilt with `scripts/build_signbank_index.py`) |
 | `asl_util/pipeline.py` | Video → timestamped signs |
-| `templates/`, `static/` | Web pages (`index.html`; `pose_prototype.html` for the 2D figure; `compare.html` to check an animation against its video), `static/js/signer.js` (draws the figure), styles and fingerspelling images |
+| `frontend/` | The web page: React + TypeScript (Vite). `src/signer/` draws the figure and times the signs (with Vitest tests), `src/pages/` has the home and compare pages |
+| `static/` | Images served by Flask, including the fingerspelling handshapes |
 | `scripts/` | Rebuild the gloss list; make animations from local video files |
 | `tests/` | Offline tests (Whisper and Stanza are replaced by fakes) |
 
@@ -44,14 +46,19 @@ Words are only ever moved later in a sentence, never earlier. Signs appear once 
 ```bash
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements-dev.txt
-python app.py            # open http://localhost:5000
+(cd frontend && npm install && npm run build)    # builds the page into frontend/dist
+flask --app "app:create_app()" run --port 5001   # open http://localhost:5001
 ```
+
+To work on the page with live reloading, keep Flask running and start Vite's dev server in `frontend/` with `npm run dev`; it forwards API requests to Flask on port 5001.
 
 The Whisper, Stanza and MediaPipe models download on the first upload, so the first request is slow. Each sign's 2D animation is also made the first time that sign appears (about a second per sign) and reused after that.
 
 Settings (environment variables): `SIGNMEUP_WHISPER_MODEL` (default `tiny`), `SIGNMEUP_MAX_UPLOAD_MB` (default 200), `SIGNMEUP_UPLOAD_DIR` (default: the system temp folder), `SIGNMEUP_CACHE_DIR` (where found sign videos and made animations are kept; default: a `signmeup-cache` folder in the system temp folder), `SIGNMEUP_POSE_MODEL` (path to MediaPipe's holistic model; downloaded into the cache folder if not set).
 
 ### API
+
+`POST /api/jobs` with a `file` form field starts processing in the background and returns `202` with a job id. `GET /api/jobs/<id>` returns its `status` (`queued`, `transcribing`, `translating`, `animating`, `done` or `error`), progress counts (`done`, `total`) while it runs, and `result` (below) when done. Jobs run one at a time; a queued job reports how many are `ahead` of it.
 
 `POST /upload` with a `file` form field (mp4, mov, m4v, webm, mkv, mp3, wav or m4a) returns:
 
@@ -109,15 +116,16 @@ Other sources that were checked and not used: ASL-LEX's sign videos are © ASL-L
 ## Tests
 
 ```bash
-pytest
+pytest                       # Python: translation, pipeline, tracking clean-up, jobs, endpoints
+(cd frontend && npm test)    # TypeScript: sign timing and frame blending
 ```
 
 The tests run offline in under a second: hand-built parses check each translation rule, and fake models check the upload endpoint, including that an uploaded filename like `../../app.py` can't write outside the upload folder.
 
 ## Built with
 - Flask
+- React, TypeScript and Vite
 - PyTorch
-- TailwindCSS
 - Whisper
 - Stanza
 - ASL Signbank
@@ -137,3 +145,4 @@ This fork continues the project after the hackathon. Changes so far:
 - Replaced the word-order rule: spoken order, with question words moved to the end of questions
 - Signed negation and quantifiers (previously dropped), and fixed base-form verbs being mis-lemmatized ("bore" → `BEAR`)
 - Matched more words to signs (Signbank translations of the same word family, plus reviewed choices for common words like pronouns), and fingerspelled the rest
+- Rebuilt the web page in React around the 2D signer, with real processing progress (a background jobs API), audio uploads and a phone layout
