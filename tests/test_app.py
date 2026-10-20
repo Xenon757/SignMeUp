@@ -18,16 +18,19 @@ def upload(client, name="talk.mp4", data=b"fake video bytes"):
     )
 
 
-def test_home_page_renders(client):
-    res = client.get("/")
-    assert res.status_code == 200
-    assert b"SignMeUp" in res.data
+def test_home_and_compare_serve_the_built_app(frontend):
+    for path in ("/", "/compare"):
+        res = frontend.get(path)
+        assert res.status_code == 200
+        assert b'<div id="root">' in res.data
+    asset = frontend.get("/assets/app.js")
+    assert asset.status_code == 200 and b"console" in asset.data
 
 
-def test_pose_prototype_page_renders(client):
-    res = client.get("/prototype")
-    assert res.status_code == 200
-    assert b"2D signing prototype" in res.data
+def test_home_explains_how_to_build_when_the_app_is_missing(client, tmp_path):
+    app = create_app(transcriber=FakeTranscriber(), glosser=FakeGlosser(), upload_dir=str(tmp_path), frontend_dir=tmp_path / "none")
+    res = app.test_client().get("/")
+    assert res.status_code == 503 and b"npm run build" in res.data
 
 
 def test_healthz(client):
@@ -151,8 +154,7 @@ def test_pipeline_keeps_each_segment_timing():
     assert out["result"] == "go home now"
 
 
-def test_compare_page_and_animation_list(client):
-    assert client.get("/compare").status_code == 200
+def test_animation_list(client):
     upload(client)
     listed = client.get("/poses/").get_json()
     assert [a["gloss"] for a in listed] == ["HELLO"]

@@ -96,6 +96,18 @@ def poses(tmp_path):
 
 
 @pytest.fixture
+def frontend(tmp_path, transcriber, upload_dir, poses):
+    """A client whose app serves a tiny stand-in for the built React app."""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text('<!doctype html><div id="root"></div>')
+    (dist / "assets" / "app.js").write_text("console.log('app')")
+    app = create_app(transcriber=transcriber, glosser=FakeGlosser(), upload_dir=str(upload_dir),
+                     media=fake_media(poses), poses=poses, frontend_dir=dist)
+    return app.test_client()
+
+
+@pytest.fixture
 def client(transcriber, upload_dir, poses):
     app = create_app(
         transcriber=transcriber,

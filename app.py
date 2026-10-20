@@ -18,13 +18,18 @@ from asl_util.signbank import GlossIndex, SignMedia, VideoResolver
 from asl_util.transcribe import TranscriptionError, WhisperTranscriber
 from asl_util.translate import StanzaGlosser
 
+# The React app (frontend/), built with `npm run build`.
+FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".mp3", ".wav", ".m4a"}
 MAX_UPLOAD_MB = int(os.environ.get("SIGNMEUP_MAX_UPLOAD_MB", "200"))
 
 log = logging.getLogger("signmeup")
 
 
-def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, media=None, poses=None) -> flask.Flask:
+def create_app(
+    transcriber=None, glosser=None, upload_dir: str | None = None, media=None, poses=None, frontend_dir=None
+) -> flask.Flask:
     """Build the app. Tests pass in fake models so nothing heavy loads."""
     app = flask.Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
@@ -41,6 +46,7 @@ def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, me
     media = media or SignMedia(GlossIndex.load(), VideoResolver(cache_dir / "signbank_videos.json"), poses)
 
     jobs = JobRunner()
+    frontend = Path(frontend_dir or FRONTEND_DIST)
 
     def error(message: str, status: int):
         return flask.jsonify({"error": message}), status
@@ -62,16 +68,21 @@ def create_app(transcriber=None, glosser=None, upload_dir: str | None = None, me
         return path, None
 
     @app.get("/")
-    def home():
-        return flask.render_template("index.html")
-
-    @app.get("/prototype")
-    def pose_prototype():
-        return flask.render_template("pose_prototype.html")
-
     @app.get("/compare")
-    def compare():
-        return flask.render_template("compare.html")
+    def page():
+        # The React app handles both pages; it picks one from the URL.
+        if not (frontend / "index.html").exists():
+            return (
+                "<h1>SignMeUp</h1><p>The web page hasn't been built yet. Run <code>npm install</code> and "
+                "<code>npm run build</code> in <code>frontend/</code>, then reload.</p>",
+                503,
+            )
+        return flask.send_from_directory(frontend, "index.html", max_age=0)
+
+    @app.get("/assets/<path:name>")
+    def frontend_asset(name: str):
+        # Built files have a content hash in their names, so they can be cached for long.
+        return flask.send_from_directory(frontend / "assets", name, max_age=31536000)
 
     @app.get("/poses/")
     def pose_list():
