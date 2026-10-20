@@ -115,6 +115,10 @@ async function loadPoses(segments) {
   return poses;
 }
 
+// Signbank marks variants of a sign with a lowercase or digit suffix (THIRTYneut, WALK3).
+// Viewers only need the sign itself, so show THIRTY and WALK.
+const signName = gloss => gloss.replace(/[a-z0-9]+$/, '') || gloss;
+
 // Turn each spoken segment's signs into clips with start times on the video's clock.
 function buildTimeline(segments, poses) {
   const clips = [];
@@ -125,7 +129,7 @@ function buildTimeline(segments, poses) {
       const pose = sign.media?.pose ? poses[sign.media.pose] : null;
       const last = segClips[segClips.length - 1];
       if (pose?.frames.length) {
-        segClips.push({ kind: 'pose', label: sign.media.gloss, pose, natural: pose.frames.length / pose.fps });
+        segClips.push({ kind: 'pose', label: signName(sign.media.gloss), pose, natural: pose.frames.length / pose.fps });
       } else if (sign.kind === 'fingerspell' && last?.kind === 'spell') {
         last.label += sign.gloss.toUpperCase();
         last.natural += LETTER_TIME;
