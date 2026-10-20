@@ -1,5 +1,6 @@
+// Highlights the drop area while a file is dragged over it. Uploading is handled by
+// the page's own script (templates/index.html), so this file only does styling.
 const dropArea = document.getElementById("drop-area");
-const fileInput = document.getElementById("file-upload");
 
 ["dragenter", "dragover"].forEach(eventName => {
   dropArea.addEventListener(eventName, (e) => {
@@ -14,30 +15,3 @@ const fileInput = document.getElementById("file-upload");
     dropArea.classList.remove("border-blue-500", "bg-blue-50");
   });
 });
-
-dropArea.addEventListener("drop", (e) => {
-  const files = e.dataTransfer.files;
-  fileInput.files = files;
-  uploadFile(files[0]);
-});
-
-fileInput.addEventListener("change", (e) => {
-  uploadFile(e.target.files[0]);
-});
-
-function uploadFile(file) {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  fetch("/upload", {
-    method: "POST",
-    body: formData
-  })
-  .then(res => res.json())
-  .then(data => {
-    console.log("Server response:", data);
-  })
-  .catch(err => {
-    console.error("Upload error:", err);
-  });
-}
