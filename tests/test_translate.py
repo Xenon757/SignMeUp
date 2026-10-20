@@ -162,3 +162,36 @@ def test_question_word_as_subject_is_not_dropped():
     # "Who called?"
     sentence = [w(1, 2, "Who", "who", "PRON", "nsubj"), w(2, 0, "called", "call", "VERB", "root"), w(3, 2, "?", "?", "PUNCT", "punct")]
     assert gloss_string(sentence_to_signs(sentence)) == "call who"
+
+
+def test_negation_is_always_signed():
+    # "I do n't know." -- Stanza splits "don't" into "do" + "n't" (lemma "not", tagged PART).
+    sentence = [
+        w(1, 4, "I", "I", "PRON", "nsubj"),
+        w(2, 4, "do", "do", "AUX", "aux"),
+        w(3, 4, "n't", "not", "PART", "advmod"),
+        w(4, 0, "know", "know", "VERB", "root"),
+    ]
+    assert gloss_string(sentence_to_signs(sentence)) == "not know"
+
+
+def test_no_as_a_determiner_is_signed():
+    # "No matter what."
+    sentence = [w(1, 2, "No", "no", "DET", "det"), w(2, 0, "matter", "matter", "NOUN", "root")]
+    assert gloss_string(sentence_to_signs(sentence)) == "no matter"
+
+
+def test_quantifiers_are_signed_but_articles_are_not():
+    sentence = [w(1, 2, "All", "all", "DET", "det"), w(2, 0, "cats", "cat", "NOUN", "root"), w(3, 2, "the", "the", "DET", "det")]
+    assert gloss_string(sentence_to_signs(sentence)) == "all cat"
+
+
+def test_base_form_verb_keeps_its_own_form():
+    # "not to bore you": the lemmatizer says "bear" (bore = past of bear), but VB means base form.
+    bore = Word(1, 0, "bore", "bear", "VERB", "root", xpos="VB")
+    assert sentence_to_signs([bore])[0].gloss == "bore"
+
+
+def test_past_tense_verb_is_still_lemmatized():
+    ran = Word(1, 0, "ran", "run", "VERB", "root", xpos="VBD")
+    assert sentence_to_signs([ran])[0].gloss == "run"

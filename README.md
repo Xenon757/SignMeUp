@@ -11,7 +11,8 @@ A second page, `/prototype`, signs the video with a 2D animated figure instead. 
 ASL is not English word-for-word, so the text is parsed with [Stanza](https://stanfordnlp.github.io/stanza/) (part-of-speech tags, base word forms and dependency relations) and these rules are applied:
 
 - Articles, forms of "to be", auxiliaries and prepositions are dropped ("The cat is sleeping on the mat" → `CAT SLEEP MAT`).
-- Words are signed in their base form ("running" → `RUN`).
+- Words are signed in their base form ("running" → `RUN`). Verbs the parser tags as already being in base form are kept as written, which avoids mix-ups like "bore" → `BEAR`.
+- Negation is always signed ("don't know" → `NOT KNOW`, "no matter" → `NO MATTER`), and so are quantifiers like `ALL`, `SOME` and `MANY`.
 - Subject pronouns are dropped because ASL usually implies them. Question words are kept even as subjects ("Who called?" → `CALL WHO`).
 - Words keep their spoken order, since ASL's basic order is subject–verb–object like English. In a question, the question word moves to the end ("What is your name?" → `YOUR NAME WHAT`).
 

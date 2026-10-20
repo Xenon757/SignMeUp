@@ -28,6 +28,7 @@ class Word:
     upos: str        # universal part-of-speech tag, e.g. NOUN, VERB, PROPN
     deprel: str      # dependency relation to the head, e.g. nsubj, obj
     start_char: Optional[int] = None  # where the word starts in the sentence text
+    xpos: Optional[str] = None        # Penn Treebank tag, e.g. VB (base form), VBD (past)
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,16 @@ DROPPED_WORDS = {
 DROPPED_POS = {"AUX", "DET", "ADP", "SYM", "X", "PART"}
 
 SIGNED_POS = {"NOUN", "VERB", "ADJ", "ADV", "PRON", "INTJ", "CCONJ", "SCONJ"}
+
+# Negation changes the meaning of a sentence, so it is always signed, even though
+# parsers tag "not"/"n't" as particles and "no" as a determiner.
+NEGATIONS = {"not", "no", "never", "nothing", "nobody", "none"}
+
+# Quantifiers are determiners too, but carry meaning ASL signs ("ALL", "SOME", "MANY").
+QUANTIFIERS = {"all", "some", "every", "each", "any", "many", "few", "both", "much", "more", "most"}
+
+# Penn Treebank tags for verbs already in their base form ("to bore", "I bore").
+BASE_FORM_VERB_TAGS = {"VB", "VBP"}
 
 
 # Question words that ASL usually signs at the end of a question.
@@ -100,6 +111,10 @@ def word_to_signs(word: Word) -> List[Sign]:
     """Apply the ASL rules to a single word. Returns [] if it isn't signed."""
     text, lemma = word.text.lower(), word.lemma.lower()
 
+    if lemma in NEGATIONS:
+        return [Sign(text, "not" if lemma == "not" else lemma, "sign", word.start_char)]
+    if word.upos == "DET" and lemma in QUANTIFIERS:
+        return [Sign(text, lemma, "sign", word.start_char)]
     if (text, lemma) in DROPPED_WORDS or word.upos in DROPPED_POS:
         return []
     if word.upos == "PROPN":
@@ -114,6 +129,10 @@ def word_to_signs(word: Word) -> List[Sign]:
         return []
     if word.upos == "SCONJ" and lemma == "that":
         return []
+    # A verb tagged as a base form is already its own lemma. Trusting the tag avoids
+    # lemmatizer mix-ups between verbs whose forms collide ("bore" -> "bear").
+    if word.upos == "VERB" and word.xpos in BASE_FORM_VERB_TAGS and text.isalpha():
+        lemma = text
     return [Sign(text, lemma, "sign", word.start_char)]
 
 
@@ -169,6 +188,7 @@ def words_from_stanza(sentence) -> List[Word]:
             lemma=w.lemma or w.text,
             upos=w.upos,
             deprel=w.deprel,
+            xpos=getattr(w, "xpos", None),
             # Words inside a contraction ("do" in "don't") share the token's position.
             start_char=getattr(token, "start_char", None),
         )
