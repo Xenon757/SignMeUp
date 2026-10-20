@@ -7,6 +7,8 @@ import type { PoseClip, Segment } from '../types';
 const SPELL_FADE = 0.15; // seconds a fingerspelled word takes to fade in and out
 
 interface Props {
+  title: string; // the uploaded file's name
+  onReset: () => void; // start over with another file
   src: string; // object URL of the uploaded file
   audioOnly: boolean;
   segments: Segment[];
@@ -67,10 +69,11 @@ interface View {
 }
 
 /** The uploaded video (or audio) next to the signing figure. */
-export function Player({ src, audioOnly, segments, poses }: Props) {
+export function Player({ title, onReset, src, audioOnly, segments, poses }: Props) {
   const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const viewer = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLDetailsElement>(null);
   const [optimized, setOptimized] = useState(false);
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
   const [fullscreen, setFullscreen] = useState(false);
@@ -86,6 +89,21 @@ export function Player({ src, audioOnly, segments, poses }: Props) {
     document.addEventListener('fullscreenchange', onChange);
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
+  // Close the "Signer box" menu on a click or tap anywhere outside it, or on Escape.
+  useEffect(() => {
+    const close = (e: Event) => {
+      const el = menu.current;
+      if (!el?.open) return;
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !el.contains(e.target as Node)) el.open = false;
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    return () => {
+      document.removeEventListener('pointerdown', close);
+      document.removeEventListener('keydown', close);
+    };
+  }, []);
+
   const toggleFullscreen = () => {
     if (document.fullscreenElement) document.exitFullscreen();
     else viewer.current?.requestFullscreen().catch(() => {});
@@ -153,63 +171,28 @@ export function Player({ src, audioOnly, segments, poses }: Props) {
   const summary = useMemo(() => {
     const animated = timeline.filter(c => c.kind === 'pose').length;
     const spelled = timeline.filter(c => c.kind === 'spell').length;
-    return `${animated} signs animated${spelled ? `, ${spelled} fingerspelled` : ''}`;
-  }, [timeline]);
+    const sentences = segments.length;
+    return `${sentences} sentence${sentences === 1 ? '' : 's'} · ${animated} signs${spelled ? ` · ${spelled} fingerspelled` : ''}`;
+  }, [timeline, segments]);
 
   const { playing, latest, caption } = view;
   const lag = playing ? playing.behind / rate : 0;
-  const pace = playing?.kind === 'spell' ? 'fingerspelling' : playing ? `${playing.speed.toFixed(1)}×` : '';
+  // The spoken sentence is only worth showing when the signing is on a different one.
+  const spokenElsewhere = caption && latest && caption.text !== latest.text ? caption.text : null;
+  const cornerLabel: Record<Corner, string> = { 'top-left': '↖', 'top-right': '↗', 'bottom-left': '↙', 'bottom-right': '↘' };
 
   return (
     <div className="player">
-      <div className="player-controls">
-        <button
-          type="button"
-          className="toggle"
-          aria-pressed={optimized}
-          onClick={() => setOptimized(o => !o)}
-          title="Slow the video down so the signs have time to be read"
-        >
-          Optimize for ASL
-        </button>
-        <span className="muted">
-          {optimized ? `Playing at ${rate.toFixed(2)}× speed` : bestRate < 1 ? `Suggested: ${bestRate.toFixed(2)}× speed` : 'This video’s pace suits ASL'}
-        </span>
+      <div className="player-head">
+        <div>
+          <h2 className="file-name">{title}</h2>
+          <p className="muted small">{summary}</p>
+        </div>
+        <button type="button" className="secondary" onClick={onReset}>New video</button>
       </div>
 
-      {!audioOnly && (
-        <div className="player-controls layout-controls">
-          <div className="segmented" role="group" aria-label="Where the signer goes">
-            <button type="button" aria-pressed={layout === 'overlay'} onClick={() => update({ layout: 'overlay' })}>In the video</button>
-            <button type="button" aria-pressed={layout === 'side'} onClick={() => update({ layout: 'side' })}>Side by side</button>
-          </div>
-          {layout === 'overlay' && (
-            <>
-              <label>
-                Corner{' '}
-                <select value={prefs.corner} onChange={e => update({ corner: e.target.value as Corner })}>
-                  {CORNERS.map(c => <option key={c} value={c}>{c.replace('-', ' ')}</option>)}
-                </select>
-              </label>
-              <div className="segmented" role="group" aria-label="Signer size">
-                {SIZES.map(size => (
-                  <button key={size} type="button" aria-pressed={prefs.size === size} onClick={() => update({ size })}>
-                    {size[0].toUpperCase() + size.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-          {canFullscreen && (
-            <button type="button" className="secondary" onClick={toggleFullscreen}>
-              {fullscreen ? 'Exit full screen' : 'Full screen'}
-            </button>
-          )}
-        </div>
-      )}
-
       {/* The same elements in every layout (only CSS changes), so the canvas is never re-created. */}
-      <div ref={viewer} className={`viewer ${layout} ${prefs.corner} ${prefs.size}`}>
+      <div ref={viewer} className={`theatre ${layout} ${prefs.corner} ${prefs.size}`}>
         <div className="media-box" aria-label="Your upload">
           {audioOnly ? (
             <div className="audio-card">
@@ -222,29 +205,77 @@ export function Player({ src, audioOnly, segments, poses }: Props) {
         </div>
         <div className="signer-box" aria-label="ASL signing">
           <canvas ref={canvas} width={1000} height={1000} role="img" aria-label={playing ? `Signing ${playing.label}` : 'Signer'} />
-          {/* The sign being made. One line of fixed height, sized to the box, so a long word
-              never makes the box or the figure change size (it is cut off with "…" instead).
-              Hidden from screen readers: the highlighted sentence below already says it. */}
-          <p className="sign-label" aria-hidden="true" title={latest?.label}>{latest?.label ?? '\u00a0'}</p>
+          {/* The sign being made. Fixed height and sized to the box, so a long word never makes
+              the box or the figure change size. Hidden from screen readers: the caption says it. */}
+          <p className="sign-label" aria-hidden="true">
+            <span className={latest ? '' : 'empty'} title={latest?.label}>{latest?.label ?? '\u00a0'}</span>
+          </p>
         </div>
         <div className="subtitles">
           <p className="signing" aria-live="polite">
             {latest ? <Highlighted text={latest.text} char={latest.char} /> : '\u00a0'}
           </p>
-          <p className="caption">
-            <span className="tag">Spoken</span> {caption?.text ?? '\u00a0'}
-          </p>
-          <p className="stats">
-            {playing && (
-              <>
-                {playing.mode === 'aligned' ? 'aligned to speech' : 'sentence mode'} · {pace}
-                {lag > 0.3 && <span className="behind"> · {lag.toFixed(1)}s behind</span>}
-              </>
-            )}
+          {/* Always takes its line, so the strip doesn't jump when it appears. */}
+          <p className={`spoken${spokenElsewhere ? '' : ' hidden'}`}>
+            Now saying: {spokenElsewhere ?? '\u00a0'}
+            {lag > 0.3 && <span className="behind"> · signing {lag.toFixed(1)}s behind</span>}
           </p>
         </div>
       </div>
-      <p className="summary muted">{summary}</p>
+
+      <div className="toolbar">
+        <div className="toolbar-group">
+          <button
+            type="button"
+            className="toggle"
+            aria-pressed={optimized}
+            onClick={() => setOptimized(o => !o)}
+            title="Slow the video down so the signs have time to be read"
+          >
+            Optimize for ASL
+          </button>
+          <span className="muted small">
+            {optimized ? `Playing at ${rate.toFixed(2)}×` : bestRate < 1 ? `${bestRate.toFixed(2)}× suggested` : 'Pace already suits ASL'}
+          </span>
+        </div>
+
+        {!audioOnly && (
+          <div className="toolbar-group">
+            <div className="segmented" role="group" aria-label="Where the signer goes">
+              <button type="button" aria-pressed={layout === 'overlay'} onClick={() => update({ layout: 'overlay' })}>In the video</button>
+              <button type="button" aria-pressed={layout === 'side'} onClick={() => update({ layout: 'side' })}>Side by side</button>
+            </div>
+            {layout === 'overlay' && (
+              <details className="menu" ref={menu}>
+                <summary>Signer box</summary>
+                <div className="menu-panel">
+                  <p className="menu-title">Corner</p>
+                  <div className="corner-grid" role="group" aria-label="Corner">
+                    {(['top-left', 'top-right', 'bottom-left', 'bottom-right'] as Corner[]).map(c => (
+                      <button key={c} type="button" aria-pressed={prefs.corner === c} aria-label={c.replace('-', ' ')} onClick={() => update({ corner: c })}>
+                        {cornerLabel[c]}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="menu-title">Size</p>
+                  <div className="segmented" role="group" aria-label="Signer size">
+                    {SIZES.map(size => (
+                      <button key={size} type="button" aria-pressed={prefs.size === size} onClick={() => update({ size })}>
+                        {size[0].toUpperCase() + size.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            )}
+            {canFullscreen && (
+              <button type="button" className="secondary" onClick={toggleFullscreen}>
+                {fullscreen ? 'Exit full screen' : 'Full screen'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

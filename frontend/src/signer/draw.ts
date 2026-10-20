@@ -7,9 +7,10 @@ const PALM = [0, 1, 5, 9, 13, 17];
 // Face points are stored outline after outline, in this order and length (see asl_util/poses.py).
 const FACE_OUTLINES: [string, number][] = [['oval', 36], ['lips', 20], ['leftEye', 16], ['rightEye', 16], ['leftBrow', 10], ['rightBrow', 10]];
 
+// The figure wears solid dark clothing, like ASL interpreters do, so the hands stand out.
 export const COLORS = {
-  body: '#334a6b', forearm: '#5b7bab', skin: '#e9c9a8', line: '#1f2937', torso: '#d7dee9',
-  palm: '#f3d2b0', backOfHand: '#c8895a', handOutline: '#6b3f22', lips: '#9b4a4a',
+  shirt: '#2b3445', sleeve: '#2b3445', forearm: '#3d4a61', skin: '#e9c9a8', faceEdge: '#d4ad86',
+  line: '#1f2937', palm: '#f3d2b0', backOfHand: '#c8895a', handOutline: '#6b3f22', lips: '#9b4a4a',
 };
 
 /** A colour darkened by `amount` (0 = unchanged, 1 = black), for shading parts set back. */
@@ -98,15 +99,22 @@ export function drawFigure(ctx: CanvasRenderingContext2D, frame: Frame | null) {
   };
 
   const [nose, lSh, rSh, lEl, rEl, lWr, rWr, lHip, rHip] = frame.pose;
+  const shoulderWidth = Math.hypot(lSh[0] - rSh[0], lSh[1] - rSh[1]) * unit;
+  const neckBase: Point = [(lSh[0] + rSh[0]) / 2, (lSh[1] + rSh[1]) / 2];
 
-  ctx.fillStyle = COLORS.torso;
-  path([lSh, rSh, rHip, lHip], true); ctx.fill();
+  // Neck, then the shirt over its base (rounded at the shoulders), then the head over its top.
+  line(neckBase, nose, shoulderWidth * 0.36, COLORS.skin);
+  ctx.lineJoin = 'round';
+  path([lSh, rSh, rHip, lHip], true);
+  ctx.fillStyle = COLORS.shirt; ctx.fill();
+  ctx.lineWidth = 24 * s; ctx.strokeStyle = COLORS.shirt; ctx.stroke();
 
   if (frame.face) {
     const parts: Record<string, Point[]> = {};
     let i = 0;
     for (const [name, n] of FACE_OUTLINES) { parts[name] = frame.face.slice(i, i + n); i += n; }
     ctx.fillStyle = COLORS.skin; path(parts.oval, true); ctx.fill();
+    ctx.lineWidth = 3 * s; ctx.strokeStyle = COLORS.faceEdge; ctx.stroke();
     ctx.fillStyle = COLORS.line;
     for (const brow of ['leftBrow', 'rightBrow']) { path(parts[brow], true); ctx.fill(); }
     ctx.lineWidth = 3 * s; ctx.strokeStyle = COLORS.line;
@@ -121,17 +129,16 @@ export function drawFigure(ctx: CanvasRenderingContext2D, frame: Frame | null) {
   // Each arm and its hand are drawn together, the farther side first, so where the hands cross
   // or touch the nearer one is on top. Depth comes from the body tracker's wrists (smaller z =
   // nearer); without it, the signer's right hand goes on top.
-  line(lSh, rSh, 22 * s, COLORS.body);
   const sides = [
     { sh: lSh, el: lEl, wr: lWr, hand: frame.leftHand, isRight: false, z: lWr[2] ?? 1 },
     { sh: rSh, el: rEl, wr: rWr, hand: frame.rightHand, isRight: true, z: rWr[2] ?? 0 },
   ].sort((a, b) => b.z - a.z);
   sides.forEach((side, k) => {
     // The arm ends at the tracked hand's wrist, so arm and hand stay joined. The forearm is a
-    // lighter shade so a bent arm reads as two parts, even folded back toward the face.
+    // slightly lighter shade so a bent arm reads as two parts, even folded back toward the face.
     const nearer = k === sides.length - 1;
-    line(side.sh, side.el, 22 * s, COLORS.body);
-    line(side.el, side.hand ? side.hand[0] : side.wr, 18 * s, COLORS.forearm);
+    line(side.sh, side.el, 30 * s, COLORS.sleeve);
+    line(side.el, side.hand ? side.hand[0] : side.wr, 24 * s, COLORS.forearm);
     // Depth cues: both hands cast a shadow, the nearer one more strongly, and the farther hand
     // is slightly darker, as if it gets less light.
     drawHand(side.hand, side.isRight, nearer ? 0 : 0.12, nearer ? 0.45 : 0.25);

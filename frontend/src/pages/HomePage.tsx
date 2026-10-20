@@ -77,13 +77,14 @@ export function HomePage() {
       )}
 
       {state.phase === 'ready' && (
-        <>
-          <div className="result-head">
-            <h2 className="file-name">{state.file.name}</h2>
-            <button type="button" className="secondary" onClick={reset}>Try another file</button>
-          </div>
-          <Player src={state.url} audioOnly={isAudio(state.file)} segments={state.segments} poses={state.poses} />
-        </>
+        <Player
+          title={state.file.name}
+          onReset={reset}
+          src={state.url}
+          audioOnly={isAudio(state.file)}
+          segments={state.segments}
+          poses={state.poses}
+        />
       )}
     </main>
   );

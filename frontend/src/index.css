@@ -88,101 +88,133 @@ li.active .marker { border-color: var(--accent); border-top-color: transparent; 
 .error-card p { margin: 0 0 18px; }
 
 /* Player */
-.result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.result-head h2 { font-size: 1.125rem; margin: 0; }
-.player-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+.player-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.player-head h2 { font-size: 1.25rem; margin: 0 0 2px; }
+.player-head p { margin: 0; }
+
+/* The theatre: media, signer and subtitles in one card. The same elements are used in every
+   layout; only the grid changes, so the signer's canvas is never re-created. */
+.theatre {
+  --stage: #0f1218; --signer-bg: #f3efe8;
+  display: grid; background: var(--card); border-radius: 18px; overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 28px rgba(31, 41, 55, 0.08);
+}
+.media-box { min-width: 0; background: var(--stage); display: flex; align-items: center; justify-content: center; }
+.media-box video { display: block; width: 100%; max-height: 68vh; object-fit: contain; background: var(--stage); }
+.signer-box { min-width: 0; container-type: inline-size; background: radial-gradient(circle at 50% 40%, #fbf9f5, var(--signer-bg)); }
+.signer-box canvas { display: block; width: 100%; aspect-ratio: 1 / 1; }
+/* The sign being made, as a tag under the figure. Height and font size are fractions of the
+   box's width (cqw), so the label scales with the box but never depends on the word. */
+.sign-label { margin: 0; height: 11cqw; display: flex; align-items: flex-start; justify-content: center; padding: 0 4cqw; }
+.sign-label span {
+  max-width: 100%; padding: 0.9cqw 3.2cqw; border-radius: 999px; background: #2b3445; color: #fff;
+  font: 700 4.6cqw/1.2 Poppins, system-ui, sans-serif; letter-spacing: 0.05em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sign-label span.empty { visibility: hidden; }
+
+/* Subtitles: the sentence being signed, like closed captions, with the current word marked. */
+.subtitles { grid-column: 1 / -1; padding: 14px 20px 12px; text-align: center; border-top: 1px solid var(--line); }
+.subtitles p { margin: 0; }
+.signing { font-size: 1.375rem; line-height: 1.45; min-height: 1.45em; font-weight: 500; }
+.signing mark { background: var(--accent); color: var(--accent-ink); border-radius: 7px; padding: 0 7px; }
+.spoken { margin-top: 4px !important; font-size: 0.875rem; color: var(--muted); min-height: 1.3em; }
+.spoken.hidden { visibility: hidden; }
+.behind { color: var(--warn); font-weight: 600; }
+
+/* In the video: like a TV interpreter, the signer sits in a solid box in a corner of the
+   video (both share one grid cell). Bottom corners leave room for the video's controls. */
+.theatre.overlay { grid-template-columns: 1fr; }
+.theatre.overlay .media-box, .theatre.overlay .signer-box { grid-area: 1 / 1; }
+.theatre.overlay .signer-box {
+  z-index: 1; margin: 14px; border-radius: 14px; overflow: hidden;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4); border: 2px solid rgba(255, 255, 255, 0.9);
+}
+.theatre.overlay.small .signer-box { width: 24%; }
+.theatre.overlay.medium .signer-box { width: 30%; }
+.theatre.overlay.large .signer-box { width: 40%; }
+.theatre.overlay.bottom-right .signer-box { justify-self: end; align-self: end; margin-bottom: 58px; }
+.theatre.overlay.bottom-left .signer-box { justify-self: start; align-self: end; margin-bottom: 58px; }
+.theatre.overlay.top-right .signer-box { justify-self: end; align-self: start; }
+.theatre.overlay.top-left .signer-box { justify-self: start; align-self: start; }
+
+/* Side by side: video and signer the same height; the video is letterboxed on the dark stage. */
+.theatre.side { grid-template-columns: 1fr; }
+@media (min-width: 860px) {
+  .theatre.side { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); }
+  .theatre.side .media-box video { height: 100%; max-height: none; }
+}
+
+.audio-card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; width: 100%; height: 100%; min-height: 200px; padding: 28px 20px; }
+.audio-card span { font-size: 2.5rem; color: #9fb8ae; }
+.audio-card audio { width: 100%; max-width: 420px; }
+
+/* Full screen: the theatre fills the screen; subtitles become a dark caption strip. */
+.theatre:fullscreen { border-radius: 0; background: var(--stage); grid-template-rows: minmax(0, 1fr) auto; }
+.theatre:fullscreen .media-box video { height: 100%; max-height: none; }
+.theatre.side:fullscreen .signer-box { display: flex; flex-direction: column; justify-content: center; }
+.theatre.side:fullscreen .signer-box canvas { width: auto; max-width: 100%; height: calc(100vh - 220px); margin: 0 auto; }
+.theatre:fullscreen .subtitles { background: #000; color: #fff; border-top: 0; }
+.theatre:fullscreen .spoken { color: #b9bec6; }
+
+/* Toolbar under the theatre */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.toolbar-group { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 button.toggle { background: var(--card); color: var(--accent); }
 button.toggle[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
-.layout-controls label { font-size: 0.9375rem; color: var(--muted); }
-.segmented { display: inline-flex; border: 1px solid var(--accent); border-radius: 999px; overflow: hidden; }
-.segmented button { border: 0; border-radius: 0; background: var(--card); color: var(--accent); min-height: 40px; padding: 6px 14px; }
+.segmented { display: inline-flex; border: 1px solid var(--accent); border-radius: 999px; overflow: hidden; background: var(--card); }
+.segmented button { border: 0; border-radius: 0; background: transparent; color: var(--accent); min-height: 40px; padding: 6px 16px; }
 .segmented button + button { border-left: 1px solid var(--accent); }
 .segmented button[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
 
-/* The viewer holds the media, the signer and the subtitles. The same elements are used in
-   every layout; only the grid changes, so the signer's canvas is never re-created. */
-.viewer { display: grid; gap: 12px; }
-.media-box, .signer-box { min-width: 0; }
-.media-box video { width: 100%; display: block; border-radius: 12px; background: #000; max-height: 72vh; }
-.signer-box { container-type: inline-size; }
-.signer-box canvas { width: 100%; aspect-ratio: 1 / 1; display: block; border-radius: 12px; background: var(--canvas); }
-/* Font size and height are fractions of the box's width (cqw), so the label scales with the
-   box but its size never depends on the word. */
-.sign-label {
-  margin: 0; height: 12cqw; line-height: 12cqw; font-size: 8cqw; font-weight: 700; letter-spacing: 0.04em;
-  text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink);
-  font-family: Poppins, system-ui, sans-serif;
+/* "Signer box" menu: corner and size */
+.menu { position: relative; }
+.menu summary {
+  list-style: none; cursor: pointer; min-height: 40px; display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 16px; border: 1px solid var(--accent); border-radius: 999px; color: var(--accent); background: var(--card); font-weight: 500;
 }
-.subtitles { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px 14px; }
-.subtitles .signing { margin: 0 0 4px; }
-.subtitles .caption { margin: 0; font-size: 0.9375rem; color: var(--muted); }
-
-/* In the video: like a TV interpreter, the signer sits in a solid box in one corner of the
-   video (both share one grid cell). Bottom corners leave room for the video's controls. */
-.viewer.overlay { grid-template-columns: 1fr; }
-.viewer.overlay .media-box { grid-area: 1 / 1; }
-.viewer.overlay .signer-box {
-  grid-area: 1 / 1; z-index: 1; margin: 12px; padding: 4px; border-radius: 14px;
-  background: var(--canvas); box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35); border: 2px solid #fff;
+.menu summary::-webkit-details-marker { display: none; }
+.menu summary::after { content: '▾'; font-size: 0.8em; }
+.menu summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.menu-panel {
+  position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 5; width: 220px; padding: 14px;
+  background: var(--card); border-radius: 14px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.16); border: 1px solid var(--line);
 }
-.viewer.overlay .signer-box canvas { border-radius: 10px; }
-.viewer.overlay.small .signer-box { width: 24%; }
-.viewer.overlay.medium .signer-box { width: 32%; }
-.viewer.overlay.large .signer-box { width: 42%; }
-.viewer.overlay.bottom-right .signer-box { justify-self: end; align-self: end; margin-bottom: 56px; }
-.viewer.overlay.bottom-left .signer-box { justify-self: start; align-self: end; margin-bottom: 56px; }
-.viewer.overlay.top-right .signer-box { justify-self: end; align-self: start; }
-.viewer.overlay.top-left .signer-box { justify-self: start; align-self: start; }
+.menu-title { margin: 0 0 6px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.menu-title + * { margin-bottom: 12px; }
+.corner-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.corner-grid button { min-height: 40px; border-radius: 10px; background: var(--card); color: var(--accent); font-size: 1.1rem; }
+.corner-grid button[aria-pressed='true'] { background: var(--accent); color: var(--accent-ink); }
+.menu-panel .segmented { display: flex; }
+.menu-panel .segmented button { flex: 1; padding: 6px 8px; }
 
-/* Side by side: two columns on wide screens, stacked on phones. */
-.viewer.side { grid-template-columns: 1fr; }
-.viewer.side .media-box, .viewer.side .signer-box { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px; }
-@media (min-width: 860px) {
-  .viewer.side { grid-template-columns: 1fr 1fr; align-items: start; }
-  .viewer.side .subtitles { grid-column: 1 / -1; }
-}
-
-/* Full screen: the whole viewer fills the screen, subtitles in a dark strip at the bottom. */
-.viewer:fullscreen { background: #111; padding: 16px; grid-template-rows: minmax(0, 1fr) auto; align-content: stretch; }
-.viewer:fullscreen .media-box { display: flex; align-items: center; justify-content: center; min-height: 0; }
-.viewer:fullscreen .media-box video { max-height: 100%; height: 100%; width: 100%; object-fit: contain; border-radius: 0; }
-.viewer.side:fullscreen .media-box, .viewer.side:fullscreen .signer-box { background: transparent; box-shadow: none; }
-.viewer.side:fullscreen .signer-box canvas { max-height: calc(100vh - 160px); width: auto; margin: 0 auto; }
-.viewer:fullscreen .subtitles { background: rgba(0, 0, 0, 0.75); color: #fff; box-shadow: none; text-align: center; }
-.viewer:fullscreen .subtitles .caption, .viewer:fullscreen .subtitles .stats { color: #c9cdd3; }
-
+/* Compare page panes */
 .stage { display: grid; grid-template-columns: 1fr; gap: 16px; }
 @media (min-width: 860px) { .stage { grid-template-columns: 1fr 1fr; align-items: start; } }
 .pane { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 12px; min-width: 0; }
 .pane video { width: 100%; display: block; border-radius: 10px; background: #000; max-height: 70vh; }
-.pane canvas { width: 100%; aspect-ratio: 1 / 1; display: block; border-radius: 10px; background: var(--canvas); }  /* compare page */
-.audio-card { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 12px; background: var(--canvas); border-radius: 10px; }
-.audio-card span { font-size: 2.5rem; color: var(--accent); }
-.audio-card audio { width: 100%; }
+.pane canvas { width: 100%; aspect-ratio: 1 / 1; display: block; border-radius: 10px; background: var(--canvas); }
 .tag { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 6px 6px 0; font-weight: 600; font-family: inherit; }
-.caption { margin: 10px 2px 2px; min-height: 1.5em; }
-.signing { margin: 12px 4px 4px; font-size: 1.25rem; line-height: 1.5; min-height: 3em; }
-.signing mark { background: var(--accent); color: var(--accent-ink); border-radius: 6px; padding: 1px 6px; }
-.stats { margin: 0 4px; min-height: 1.25em; font-size: 0.8125rem; color: var(--muted); text-align: right; }
-.behind { color: var(--warn); font-weight: 600; }
-.summary { margin-top: 12px; font-size: 0.875rem; }
 
-/* Phones: the video and the figure must both be visible at once, so the figure gets the
-   space left under the video instead of the full width, and the controls take less room. */
+/* Phones: video and signer stacked and both on screen at once; tighter controls. */
 @media (max-width: 859px) {
   main { padding-top: 12px; }
-  .result-head h2 { font-size: 1rem; }
-  .result-head, .player-controls { margin-bottom: 8px; gap: 8px; }
-  .player-controls .muted { font-size: 0.8125rem; }
-  .stage { gap: 10px; }
-  .pane { padding: 8px; }
-  .media-box video { max-height: 30vh; }
-  .viewer.side .signer-box canvas { width: auto; height: min(40vh, calc(100vw - 52px)); margin: 0 auto; }
-  .signing { font-size: 1.0625rem; min-height: 2.5em; }
-  .viewer.overlay .signer-box { margin: 6px; margin-bottom: 44px; }
-  .player-controls button, .segmented button { min-height: 36px; padding: 4px 12px; font-size: 0.875rem; }
-  .player-controls select { min-height: 36px; padding: 4px 8px; font-size: 0.875rem; }
-  .viewer.overlay.top-right .signer-box, .viewer.overlay.top-left .signer-box { margin-bottom: 6px; }
+  .player-head { flex-wrap: nowrap; align-items: center; margin-bottom: 10px; }
+  .player-head > div { min-width: 0; }
+  .player-head h2 { font-size: 1.0625rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .player-head button { flex: none; min-height: 38px; padding: 4px 14px; font-size: 0.875rem; }
+  .media-box video { max-height: 32vh; }
+  .theatre.side .signer-box canvas { width: auto; height: min(36vh, calc(100vw - 32px)); margin: 0 auto; }
+  .theatre.side .signer-box { display: flex; flex-direction: column; align-items: center; }
+  .theatre.side .sign-label { height: auto; padding: 0 0 10px; }
+  .theatre.side .sign-label span { font-size: 0.875rem; padding: 3px 12px; }
+  .signing { font-size: 1.0625rem; }
+  .subtitles { padding: 10px 14px; }
+  .theatre.overlay .signer-box { margin: 8px; margin-bottom: 46px; }
+  .theatre.overlay.top-right .signer-box, .theatre.overlay.top-left .signer-box { margin-bottom: 8px; }
+  .toolbar { gap: 8px; }
+  .toolbar button, .segmented button, .menu summary { min-height: 38px; padding: 4px 12px; font-size: 0.875rem; }
+  .menu-panel { right: auto; left: 0; }
 }
 
 /* Compare */
