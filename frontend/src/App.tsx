@@ -1,11 +1,14 @@
 import { ComparePage } from './pages/ComparePage';
+import { DemoPage } from './pages/DemoPage';
 import { HomePage } from './pages/HomePage';
 
 const REPO = 'https://github.com/Xenon757/SignMeUp';
 
-/** Two pages, picked by URL; Flask serves this app for both. */
+/** Pages, picked by URL; Flask serves this app for each. */
 export default function App() {
-  const comparing = window.location.pathname.startsWith('/compare');
+  const path = window.location.pathname;
+  const comparing = path.startsWith('/compare');
+  const demo = path.startsWith('/demo');
   return (
     <div className="app">
       <header className="site-header">
@@ -14,12 +17,13 @@ export default function App() {
           <span>SignMeUp</span>
         </a>
         <nav>
+          <a href="/demo" aria-current={demo ? 'page' : undefined}>Demo</a>
           <a href="/compare" aria-current={comparing ? 'page' : undefined}>Compare signs</a>
           <a href={REPO} target="_blank" rel="noopener">GitHub</a>
         </nav>
       </header>
 
-      {comparing ? <ComparePage /> : <HomePage />}
+      {comparing ? <ComparePage /> : demo ? <DemoPage /> : <HomePage />}
 
       <footer className="site-footer">
         <p>

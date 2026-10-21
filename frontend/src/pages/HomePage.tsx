@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ApiError, getJob, isAudio, loadPoses, startJob } from '../api';
+import { ApiError, followJob, isAudio, loadPoses, startJob } from '../api';
 import { Player } from '../components/Player';
 import type { Activity } from '../components/Progress';
 import { Progress } from '../components/Progress';
@@ -12,8 +12,6 @@ type State =
   | { phase: 'ready'; file: File; url: string; segments: Segment[]; poses: Record<string, PoseClip> }
   | { phase: 'error'; file: File; message: string };
 
-const POLL_MS = 600;
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 export function HomePage() {
   const [state, setState] = useState<State>({ phase: 'idle' });
@@ -27,17 +25,12 @@ export function HomePage() {
     const update = (next: State) => { if (run.current === id) setState(next); };
     try {
       update({ phase: 'working', file, activity: { step: 'uploading', fraction: 0 } });
-      let job = await startJob(file, fraction => update({ phase: 'working', file, activity: { step: 'uploading', fraction } }));
-      while (job.status !== 'done' && job.status !== 'error') {
-        update({ phase: 'working', file, activity: { step: 'job', job } });
-        await sleep(POLL_MS);
-        if (run.current !== id) return;
-        job = await getJob(job.id);
-      }
-      if (job.status === 'error' || !job.result) throw new ApiError(job.error ?? 'Something went wrong.');
+      const job = await startJob(file, fraction => update({ phase: 'working', file, activity: { step: 'uploading', fraction } }));
+      const result = await followJob(job, j => update({ phase: 'working', file, activity: { step: 'job', job: j } }), () => run.current === id);
+      if (!result) return;
       update({ phase: 'working', file, activity: { step: 'loading' } });
-      const poses = await loadPoses(job.result.segments);
-      update({ phase: 'ready', file, url: URL.createObjectURL(file), segments: job.result.segments, poses });
+      const poses = await loadPoses(result.segments);
+      update({ phase: 'ready', file, url: URL.createObjectURL(file), segments: result.segments, poses });
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Something went wrong. Please try again.';
       update({ phase: 'error', file, message });
@@ -67,8 +60,7 @@ export function HomePage() {
         <Player
           title={state.file.name}
           onReset={reset}
-          src={state.url}
-          audioOnly={isAudio(state.file)}
+          source={{ kind: 'file', src: state.url, audioOnly: isAudio(state.file) }}
           segments={state.segments}
           poses={state.poses}
         />

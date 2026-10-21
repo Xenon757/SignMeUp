@@ -22,6 +22,7 @@ export function Landing({ onFile }: { onFile: (file: File) => void }) {
           </p>
           <Upload onFile={onFile} />
           <p className="muted small">Video (MP4, MOV, WebM) or audio (MP3, WAV, M4A), up to 200 MB. Nothing is kept after processing.</p>
+          <a className="demo-link" href="/demo">No video handy? Watch the demo: the first YouTube video, signed <span aria-hidden="true">→</span></a>
         </div>
         <div className="hero-art">
           <SignPreview />

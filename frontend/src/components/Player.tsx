@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { MediaClock } from '../media/clock';
+import { elementClock } from '../media/clock';
+import { YouTubeMedia } from '../media/YouTubeMedia';
 import { drawFigure, drawSpelling, preloadLetters } from '../signer/draw';
 import type { Clip } from '../signer/timeline';
 import { buildTimeline, captionAt, latestClip, optimalRate, restFrameOf, stateAt } from '../signer/timeline';
@@ -6,11 +10,17 @@ import type { PoseClip, Segment } from '../types';
 
 const SPELL_FADE = 0.15; // seconds a fingerspelled word takes to fade in and out
 
+/** What's playing: an uploaded file, or a YouTube video in YouTube's own player. */
+export type Source =
+  | { kind: 'file'; src: string; audioOnly: boolean } // src: the file's object URL
+  | { kind: 'youtube'; videoId: string };
+
 interface Props {
-  title: string; // the uploaded file's name
+  title: string; // the uploaded file's name, or the video's title
   onReset: () => void; // start over with another file
-  src: string; // object URL of the uploaded file
-  audioOnly: boolean;
+  resetLabel?: string;
+  source: Source;
+  note?: ReactNode; // shown under the toolbar (e.g. a credit)
   segments: Segment[];
   poses: Record<string, PoseClip>;
 }
@@ -69,8 +79,11 @@ interface View {
 }
 
 /** The uploaded video (or audio) next to the signing figure. */
-export function Player({ title, onReset, src, audioOnly, segments, poses }: Props) {
-  const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
+export function Player({ title, onReset, resetLabel = 'New video', source, note, segments, poses }: Props) {
+  const audioOnly = source.kind === 'file' && source.audioOnly;
+  // The media's clock, once its element or player is ready.
+  const [clock, setClock] = useState<MediaClock | null>(null);
+  const mediaRef = useCallback((el: HTMLMediaElement | null) => setClock(el ? elementClock(el) : null), []);
   const canvas = useRef<HTMLCanvasElement>(null);
   const viewer = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDetailsElement>(null);
@@ -112,15 +125,12 @@ export function Player({ title, onReset, src, audioOnly, segments, poses }: Prop
 
   const rest = useMemo(() => restFrameOf(poses), [poses]);
   const bestRate = useMemo(() => optimalRate(segments, poses), [segments, poses]);
-  const rate = optimized ? bestRate : 1;
+  // YouTube only plays at fixed speeds, so the rate snaps to the closest one it offers.
+  const rate = optimized ? clock?.snapRate(bestRate) ?? bestRate : 1;
   const timeline = useMemo(() => buildTimeline(segments, poses, rate), [segments, poses, rate]);
 
   // "Optimize for ASL" slows the media down; browsers keep the audio's pitch when doing so.
-  useEffect(() => {
-    if (!media.current) return;
-    media.current.playbackRate = rate;
-    media.current.defaultPlaybackRate = rate;
-  }, [rate]);
+  useEffect(() => { clock?.setRate(rate); }, [clock, rate]);
 
   useEffect(preloadLetters, []);
 
@@ -128,25 +138,23 @@ export function Player({ title, onReset, src, audioOnly, segments, poses }: Prop
   // media, so once it ends the clock keeps going. React state changes only when what's shown
   // in text changes, not on every frame.
   useEffect(() => {
-    const el = media.current;
     const ctx = canvas.current?.getContext('2d');
-    if (!el || !ctx) return;
+    if (!clock || !ctx) return;
     let endedAt: number | null = null;
     let shown = '';
     let raf = 0;
-    const onEnded = () => { endedAt = performance.now(); };
-    const onRestart = () => { endedAt = null; };
-    el.addEventListener('ended', onEnded);
-    el.addEventListener('play', onRestart);
-    el.addEventListener('seeked', onRestart);
+    const stopListening = clock.listen(
+      () => { endedAt = performance.now(); },
+      () => { endedAt = null; },
+    );
 
     const tick = () => {
-      const t = endedAt === null ? el.currentTime : (el.duration || 0) + ((performance.now() - endedAt) / 1000) * el.playbackRate;
+      const t = endedAt === null ? clock.time() : clock.duration() + ((performance.now() - endedAt) / 1000) * clock.rate();
       const { frame, clip } = stateAt(timeline, t, rest);
       drawFigure(ctx, frame);
       if (clip?.kind === 'spell') {
         // Fade in over the first and out over the last SPELL_FADE seconds (real time).
-        const fade = SPELL_FADE * el.playbackRate;
+        const fade = SPELL_FADE * clock.rate();
         const appear = Math.min((t - clip.start) / fade, (clip.start + clip.length - t) / fade, 1);
         drawSpelling(ctx, clip.label, (t - clip.start) / clip.length, appear);
       }
@@ -162,11 +170,9 @@ export function Player({ title, onReset, src, audioOnly, segments, poses }: Prop
     raf = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(raf);
-      el.removeEventListener('ended', onEnded);
-      el.removeEventListener('play', onRestart);
-      el.removeEventListener('seeked', onRestart);
+      stopListening();
     };
-  }, [timeline, rest, segments]);
+  }, [clock, timeline, rest, segments]);
 
   const summary = useMemo(() => {
     const animated = timeline.filter(c => c.kind === 'pose').length;
@@ -188,19 +194,21 @@ export function Player({ title, onReset, src, audioOnly, segments, poses }: Prop
           <h2 className="file-name">{title}</h2>
           <p className="muted small">{summary}</p>
         </div>
-        <button type="button" className="secondary" onClick={onReset}>New video</button>
+        <button type="button" className="secondary" onClick={onReset}>{resetLabel}</button>
       </div>
 
       {/* The same elements in every layout (only CSS changes), so the canvas is never re-created. */}
       <div ref={viewer} className={`theatre ${layout} ${prefs.corner} ${prefs.size}`}>
-        <div className="media-box" aria-label="Your upload">
-          {audioOnly ? (
+        <div className="media-box" aria-label="The video">
+          {source.kind === 'youtube' ? (
+            <YouTubeMedia videoId={source.videoId} title={title} onClock={setClock} />
+          ) : source.audioOnly ? (
             <div className="audio-card">
               <span aria-hidden="true">♪</span>
-              <audio ref={media} src={src} controls preload="auto" />
+              <audio ref={mediaRef} src={source.src} controls preload="auto" />
             </div>
           ) : (
-            <video ref={media} src={src} controls playsInline preload="auto" />
+            <video ref={mediaRef} src={source.src} controls playsInline preload="auto" />
           )}
         </div>
         <div className="signer-box" aria-label="ASL signing">
@@ -276,6 +284,7 @@ export function Player({ title, onReset, src, audioOnly, segments, poses }: Prop
           </div>
         )}
       </div>
+      {note && <p className="player-note muted small">{note}</p>}
     </div>
   );
 }

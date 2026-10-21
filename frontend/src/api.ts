@@ -1,4 +1,4 @@
-import type { AnimationInfo, JobStatus, PoseClip, Segment } from './types';
+import type { AnimationInfo, JobStatus, PoseClip, Result, Segment } from './types';
 
 /** File types the server accepts (app.py ALLOWED_EXTENSIONS). */
 export const ACCEPTED = ['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.mp3', '.wav', '.m4a'];
@@ -40,6 +40,30 @@ export function startJob(file: File, onProgress: (fraction: number) => void): Pr
     form.append('file', file);
     xhr.send(form);
   });
+}
+
+const POLL_MS = 600;
+
+/**
+ * Poll a job until it's done, reporting each status. Returns its result, or throws an ApiError
+ * with the job's message. `stillWanted` lets the caller stop following a job it has abandoned.
+ */
+export async function followJob(job: JobStatus, onStatus: (job: JobStatus) => void, stillWanted: () => boolean): Promise<Result | null> {
+  while (job.status !== 'done' && job.status !== 'error') {
+    onStatus(job);
+    await new Promise(r => setTimeout(r, POLL_MS));
+    if (!stillWanted()) return null;
+    job = await getJob(job.id);
+  }
+  if (job.status === 'error' || !job.result) throw new ApiError(job.error ?? 'Something went wrong.');
+  return job.result;
+}
+
+/** Start the built-in demo (Me at the zoo). */
+export async function startDemo(): Promise<JobStatus & { demo: { youtube_id: string; title: string; credit: string } }> {
+  const res = await fetch('/api/demo', { method: 'POST' });
+  if (res.status !== 202) throw await errorFrom(res, 'Could not start the demo.');
+  return res.json();
 }
 
 export async function getJob(id: string): Promise<JobStatus> {
