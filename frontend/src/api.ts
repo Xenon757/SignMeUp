@@ -92,6 +92,15 @@ export async function listAnimations(): Promise<AnimationInfo[]> {
   return res.ok ? res.json() : [];
 }
 
+/** The landing page's example signs, in order, loaded with their animations. */
+export async function loadPreview(): Promise<PoseClip[]> {
+  const res = await fetch('/api/preview');
+  if (!res.ok) return [];
+  const signs: { gloss: string; pose: string }[] = await res.json();
+  const clips = await Promise.all(signs.map(s => fetch(s.pose).then(r => (r.ok ? r.json() : null)).catch(() => null)));
+  return clips.filter(Boolean);
+}
+
 export async function getPose(id: number): Promise<PoseClip> {
   const res = await fetch(`/poses/${id}.json?nocache=${Date.now()}`);
   if (!res.ok) throw await errorFrom(res, 'Could not load this animation.');

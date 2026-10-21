@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { getPose, listAnimations } from '../api';
+import { loadPreview } from '../api';
 import { drawFigure } from '../signer/draw';
 import { frameAt, lerpFrame } from '../signer/frames';
 import { signName } from '../signer/timeline';
 import type { PoseClip } from '../types';
 
-// Signs to show first if they've been animated on this server; otherwise any that has.
-const FAVOURITES = ['HELLO', 'THANK-YOU', 'NAME', 'WHAT', 'TIME'];
 const HOLD = 0.6; // seconds at rest between loops
 
 /**
- * A real sign, looping on the landing page, so visitors see the signer before uploading.
- * Uses animations this server has already made; shows nothing if there are none yet.
+ * Real signs, looping on the landing page, so visitors see the signer before uploading.
+ * The server picks the signs (GET /api/preview); shows nothing until they're loaded.
  */
 export function SignPreview() {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -20,10 +18,7 @@ export function SignPreview() {
 
   useEffect(() => {
     let cancelled = false;
-    listAnimations().then(async list => {
-      const byName = (g: string) => FAVOURITES.indexOf(signName(g)) + 1 || FAVOURITES.length + 1;
-      const picks = [...list].sort((a, b) => byName(a.gloss) - byName(b.gloss)).slice(0, 4);
-      const loaded = (await Promise.all(picks.map(p => getPose(p.id).catch(() => null)))).filter(Boolean) as PoseClip[];
+    loadPreview().then(loaded => {
       if (!cancelled) setClips(loaded.filter(c => c.frames.length && c.rest));
     });
     return () => { cancelled = true; };
