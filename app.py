@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 import threading
 import uuid
@@ -29,6 +30,9 @@ MAX_UPLOAD_MB = int(os.environ.get("SIGNMEUP_MAX_UPLOAD_MB", "200"))
 # Signs looped on the landing page, picked by eye for clear, readable animations
 # (hands near the face or chest, steady tracking).
 PREVIEW_WORDS = ["hello", "elephant", "thank", "drink", "friend"]
+
+# A word typed on the compare page: letters, with hyphens, apostrophes or spaces between them.
+WORD = re.compile(r"[a-z]+(?:['\- ][a-z]+)*")
 
 log = logging.getLogger("signmeup")
 
@@ -135,6 +139,19 @@ def create_app(
                     return flask.jsonify(signs)  # try the missing ones again next time
                 preview.extend(signs)
         return flask.jsonify(preview)
+
+    @app.get("/api/sign")
+    def look_up_sign():
+        """Find a word's ASL Signbank sign and make its animation if needed (for the compare page)."""
+        word = " ".join(flask.request.args.get("word", "").lower().split())
+        if not word or len(word) > 40 or not WORD.fullmatch(word):
+            return error("Type a single English word (letters only), like 'hello'.", 400)
+        found = media.for_sign(Sign(word, word.replace(" ", "-"), "sign"))
+        if not found:
+            return error(f"ASL Signbank has no sign for '{word}'. In a video it would be fingerspelled.", 404)
+        if "pose" not in found:
+            return error(f"Found {found['gloss']} on ASL Signbank, but its video couldn't be animated.", 422)
+        return flask.jsonify({"word": word, **{k: found[k] for k in ("gloss", "id", "pose", "page")}})
 
     @app.get("/healthz")
     def healthz():

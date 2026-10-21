@@ -179,3 +179,20 @@ def test_preview_makes_and_lists_the_landing_page_signs(client, monkeypatch):
 def test_preview_leaves_out_signs_without_an_animation(client):
     # The fake Signbank only has HELLO; the other preview words have no video.
     assert [s["gloss"] for s in client.get("/api/preview").get_json()] == ["HELLO"]
+
+
+def test_sign_lookup_finds_and_animates_any_word(client):
+    found = client.get("/api/sign?word=Hello").get_json()
+    assert (found["gloss"], found["id"]) == ("HELLO", 482)
+    assert client.get(found["pose"]).status_code == 200
+
+
+def test_sign_lookup_explains_words_without_a_sign(client):
+    missing = client.get("/api/sign?word=zebra")
+    assert missing.status_code == 404
+    assert "fingerspelled" in missing.get_json()["error"]
+
+
+def test_sign_lookup_rejects_anything_but_a_word(client):
+    for bad in ["", "../etc", "hello1", "x" * 41]:
+        assert client.get("/api/sign", query_string={"word": bad}).status_code == 400
