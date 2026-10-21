@@ -32,6 +32,7 @@ export function Upload({ onFile }: Props) {
         <input
           ref={input}
           type="file"
+          title="" // hides the browser's own "No file chosen" tooltip over the drop area
           accept={['video/*', 'audio/*', ...ACCEPTED].join(',')}
           onChange={e => take(e.target.files?.[0])}
         />
