@@ -109,7 +109,7 @@ Errors return `{"error": "..."}` with status 400 (no file), 413 (too large), 415
 
 The site is set up to run on [Fly.io](https://fly.io) from the `Dockerfile`. The image builds the page, installs a CPU-only PyTorch, and downloads the Whisper, Stanza and MediaPipe models at build time, so visitors don't wait for downloads. It runs one gunicorn worker (jobs run one at a time in a background thread, so a second worker would just duplicate the models) with 8 threads for page and API requests.
 
-`fly.toml` asks for a shared 2-CPU machine with 4 GB of memory, which stops when nobody is using the site and starts on the next visit (that first visit then takes a while). Sign animations and Signbank lookups are cached on a volume mounted at `/data`, so they survive restarts.
+`fly.toml` asks for a shared 2-CPU machine with 4 GB of memory and keeps one running all the time. When it was set to stop while idle, the first upload after a stop took about 45 seconds for a two-sentence clip (booting, then loading the models from a cold disk), against about 4 seconds on a running machine. Always on costs about $25 a month at Fly's published prices in October 2026 ($13.39 for the 2-CPU size with 2 GB, plus $6 per extra GB). Setting `min_machines_running = 0` scales it to zero again. Sign animations and Signbank lookups are cached on a volume mounted at `/data`, so they survive restarts.
 
 Two things keep uploads from waiting:
 

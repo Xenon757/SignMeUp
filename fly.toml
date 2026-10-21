@@ -12,11 +12,12 @@ primary_region = "iad"
 [http_service]
   internal_port = 8080
   force_https = true
-  # Scale to zero: the machine stops when nobody is using the site (no cost while stopped)
-  # and starts on the next visit, which then takes about 20-40 s.
+  # One machine always runs, so visitors never wait for it to start and load the models
+  # (about 40 s from a stop). Set min_machines_running = 0 to scale to zero instead: no cost
+  # while stopped, but the first visit after an idle spell is slow.
   auto_stop_machines = "stop"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
 
   [[http_service.checks]]
     grace_period = "90s"
