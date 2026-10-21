@@ -148,6 +148,13 @@ def create_app(
             return error("Type a single English word (letters only), like 'hello'.", 400)
         found = media.for_sign(Sign(word, word.replace(" ", "-"), "sign"))
         if not found:
+            # Try the base form an upload would sign ("running" -> RUN).
+            for sign in glosser.to_signs(word):
+                if sign.kind == "sign" and sign.gloss != word:
+                    found = media.for_sign(sign)
+                    if found:
+                        break
+        if not found:
             return error(f"ASL Signbank has no sign for '{word}'. In a video it would be fingerspelled.", 404)
         if "pose" not in found:
             return error(f"Found {found['gloss']} on ASL Signbank, but its video couldn't be animated.", 422)

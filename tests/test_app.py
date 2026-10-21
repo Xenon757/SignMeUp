@@ -6,8 +6,9 @@ from app import create_app
 from asl_util.pipeline import translate_video
 from asl_util.poses import CLIP_VERSION
 from asl_util.transcribe import Segment
+from asl_util.translate import Sign
 
-from conftest import HELLO_VIDEO, FakeGlosser, FakeTranscriber
+from conftest import HELLO_VIDEO, FakeGlosser, FakeTranscriber, fake_media
 
 
 def upload(client, name="talk.mp4", data=b"fake video bytes"):
@@ -196,3 +197,13 @@ def test_sign_lookup_explains_words_without_a_sign(client):
 def test_sign_lookup_rejects_anything_but_a_word(client):
     for bad in ["", "../etc", "hello1", "x" * 41]:
         assert client.get("/api/sign", query_string={"word": bad}).status_code == 400
+
+
+def test_sign_lookup_falls_back_to_the_base_form(transcriber, upload_dir, poses):
+    class Lemmatizer:
+        def to_signs(self, text):
+            return [Sign(text, text.removesuffix("s"), "sign")]
+
+    app = create_app(transcriber=transcriber, glosser=Lemmatizer(), upload_dir=str(upload_dir),
+                     media=fake_media(poses), poses=poses)
+    assert app.test_client().get("/api/sign?word=hellos").get_json()["gloss"] == "HELLO"
