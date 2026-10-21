@@ -15,6 +15,8 @@ Tracked points are smoothed over time (a Gaussian over about 3 frames), which cu
 
 An **Optimize for ASL** button slows the video down (keeping the audio's pitch) so the signs have more time. It picks the fastest speed at which 90% of sentences can be signed at a comfortable pace, and never goes below 0.5×. The 30-second test video is dense enough that it uses 0.5×; at that speed 10 of its 12 sentences line up with the speech, against 4 at normal speed.
 
+`/demo` lets visitors try it without uploading anything: it signs "Me at the zoo", the first video on YouTube, playing it in YouTube's own embedded player (from youtube-nocookie.com) so the video is never copied. Since there is no audio file to transcribe, its transcript is written out in `asl_util/demo.py` with sentence times set by hand, so the timing is approximate. YouTube only offers fixed speeds (0.25× steps), so there Optimize for ASL picks the nearest one at or below the best speed.
+
 ## How the translation works
 ASL is not English word-for-word, so the text is parsed with [Stanza](https://stanfordnlp.github.io/stanza/) (part-of-speech tags, base word forms and dependency relations) and these rules are applied:
 
@@ -40,9 +42,11 @@ Words are only ever moved later in a sentence, never earlier. Signs appear once 
 | `asl_util/poses.py` | Turns a sign video into a 2D animation (MediaPipe tracking, trimming, shoulder-relative coordinates) and caches it |
 | `asl_util/data/` | ASL Signbank's gloss list (rebuilt with `scripts/build_signbank_index.py`) |
 | `asl_util/pipeline.py` | Video → timestamped signs |
+| `asl_util/demo.py` | The demo's YouTube video and hand-written transcript |
 | `frontend/` | The web page: React + TypeScript (Vite). `src/signer/` draws the figure and times the signs (with Vitest tests), `src/pages/` has the home and compare pages |
 | `static/` | Images served by Flask, including the fingerspelling handshapes |
-| `scripts/` | Rebuild the gloss list; make animations from local video files |
+| `scripts/` | Rebuild the gloss list; make animations from local video files; download the models into the Docker image |
+| `Dockerfile`, `fly.toml`, `.github/workflows/` | The production image, its Fly.io settings, and the test-and-deploy workflow |
 | `tests/` | Offline tests (Whisper and Stanza are replaced by fakes) |
 
 ## Running it
@@ -94,6 +98,28 @@ There is one segment per sentence, timed from its first to its last word (Whispe
 
 Errors return `{"error": "..."}` with status 400 (no file), 413 (too large), 415 (unsupported type) or 422 (no speech found or the audio couldn't be transcribed).
 
+`POST /api/demo` starts (or returns, once made) the demo's job in the same format, plus a `demo` object with the YouTube video id, title and credit.
+
+## Deploying
+
+The site is set up to run on [Fly.io](https://fly.io) from the `Dockerfile`. The image builds the page, installs a CPU-only PyTorch, and downloads the Whisper, Stanza and MediaPipe models at build time, so visitors don't wait for downloads. It runs one gunicorn worker (jobs run one at a time in a background thread, so a second worker would just duplicate the models) with 8 threads for page and API requests.
+
+`fly.toml` asks for a shared 2-CPU machine with 4 GB of memory, which stops when nobody is using the site and starts on the next visit (that first visit then takes a while). Sign animations and Signbank lookups are cached on a volume mounted at `/data`, so they survive restarts.
+
+On every push to `main`, the GitHub Actions workflow in `.github/workflows/deploy.yml` runs the Python and frontend tests, lint and build; if they pass, it deploys with `flyctl deploy --remote-only` (Fly builds the image, so Docker isn't needed locally). The deploy step is skipped until the `FLY_API_TOKEN` secret is set.
+
+One-time setup:
+
+```bash
+brew install flyctl
+fly auth login
+fly apps create <app-name>                                 # then set app = "<app-name>" in fly.toml
+fly volumes create signmeup_data --region iad --size 1 --app <app-name>
+fly tokens create deploy --app <app-name>                  # add the output as the FLY_API_TOKEN repository secret on GitHub
+```
+
+To deploy by hand instead, run `fly deploy` from the repository root.
+
 ## Sign media and licenses
 
 | What | Source | License | How it's used |
@@ -120,9 +146,11 @@ Other sources that were checked and not used: ASL-LEX's sign videos are © ASL-L
 ## Tests
 
 ```bash
-pytest                       # Python: translation, pipeline, tracking clean-up, jobs, endpoints
+pytest                       # Python: translation, pipeline, tracking clean-up, jobs, endpoints, demo
 (cd frontend && npm test)    # TypeScript: sign timing and frame blending
 ```
+
+GitHub Actions runs both on every push to `main` and every pull request.
 
 The tests run offline in under a second: hand-built parses check each translation rule, and fake models check the upload endpoint, including that an uploaded filename like `../../app.py` can't write outside the upload folder.
 
@@ -150,3 +178,5 @@ This fork continues the project after the hackathon. Changes so far:
 - Signed negation and quantifiers (previously dropped), and fixed base-form verbs being mis-lemmatized ("bore" → `BEAR`)
 - Matched more words to signs (Signbank translations of the same word family, plus reviewed choices for common words like pronouns), and fingerspelled the rest
 - Rebuilt the web page in React around the 2D signer, with real processing progress (a background jobs API), audio uploads and a phone layout
+- Added a demo page that signs "Me at the zoo" in YouTube's embedded player
+- Added a Docker image, Fly.io settings and a GitHub Actions workflow that tests pushes and pull requests and deploys `main`
