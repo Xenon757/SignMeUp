@@ -18,9 +18,9 @@ ENV PYTHONUNBUFFERED=1 \
     SIGNMEUP_CACHE_DIR=/data/cache \
     SIGNMEUP_UPLOAD_DIR=/tmp
 
-# OpenCV, which MediaPipe pulls in, needs these system libraries.
+# System libraries for OpenCV (libgl1, libglib2.0-0) and for MediaPipe (libEGL, libGLESv2).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 libegl1 libgles2 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
