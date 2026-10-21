@@ -79,6 +79,7 @@ Settings (environment variables): `SIGNMEUP_WHISPER_MODEL` (default `tiny`), `SI
                 "media": {"type": "video",
                           "url": "https://aslsignbank.com/dictionary/protected_media/glossvideo/ASL/HE/HELLO-482.mp4",
                           "gloss": "HELLO",
+                          "id": 482,
                           "page": "https://aslsignbank.com/dictionary/gloss/482.html",
                           "source": "ASL Signbank (CC BY-NC-SA 4.0)",
                           "pose": "/poses/482.json"}},

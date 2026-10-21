@@ -273,6 +273,7 @@ class SignMedia:
                 "type": "video",
                 "url": url,
                 "gloss": gloss,
+                "id": entry_id,
                 "page": entry_page_url(entry_id),
                 "source": "ASL Signbank (CC BY-NC-SA 4.0)",
             }

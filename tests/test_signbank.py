@@ -117,6 +117,7 @@ def test_sign_gets_first_variant_with_a_video():
         "type": "video",
         "url": CAT_VIDEO,
         "gloss": "CATf",
+        "id": 1037,
         "page": "https://aslsignbank.com/dictionary/gloss/1037.html",
         "source": "ASL Signbank (CC BY-NC-SA 4.0)",
     }
