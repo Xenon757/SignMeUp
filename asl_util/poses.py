@@ -625,7 +625,8 @@ class PoseStore:
             log.warning("Could not make a pose animation for %s (%s): %s", gloss, entry_id, exc)
             return False
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        tmp_file = self.path(entry_id).with_suffix(".tmp")
+        # A temp file per thread, so two requests making the same sign at once don't clash.
+        tmp_file = self.path(entry_id).with_suffix(f".{threading.get_ident()}.tmp")
         tmp_file.write_text(json.dumps(clip, separators=(",", ":")), encoding="utf-8")
         tmp_file.replace(self.path(entry_id))
         return bool(clip["frames"])
