@@ -101,6 +101,21 @@ export async function loadPreview(): Promise<PoseClip[]> {
   return clips.filter(Boolean);
 }
 
+export interface FoundSign {
+  word: string;
+  gloss: string;
+  id: number;
+  pose: string;
+  page: string;
+}
+
+/** Finds a word's ASL Signbank sign, making its animation if needed (can take a few seconds). */
+export async function lookUpSign(word: string): Promise<FoundSign> {
+  const res = await fetch(`/api/sign?word=${encodeURIComponent(word)}`);
+  if (!res.ok) throw await errorFrom(res, 'Could not look up this word. Please try again.');
+  return res.json();
+}
+
 export async function getPose(id: number): Promise<PoseClip> {
   const res = await fetch(`/poses/${id}.json?nocache=${Date.now()}`);
   if (!res.ok) throw await errorFrom(res, 'Could not load this animation.');
