@@ -45,7 +45,7 @@ Words are only ever moved later in a sentence, never earlier. Signs appear once 
 | `asl_util/demo.py` | The demo's YouTube video and hand-written transcript |
 | `frontend/` | The web page: React + TypeScript (Vite). `src/signer/` draws the figure and times the signs (with Vitest tests), `src/pages/` has the home and compare pages |
 | `static/` | Images served by Flask, including the fingerspelling handshapes |
-| `scripts/` | Rebuild the gloss list; make animations from local video files; download the models into the Docker image |
+| `scripts/` | Rebuild the gloss list; make animations from local video files or ahead of time for common words; download the models into the Docker image |
 | `Dockerfile`, `fly.toml`, `.github/workflows/` | The production image, its Fly.io settings, and the test-and-deploy workflow |
 | `tests/` | Offline tests (Whisper and Stanza are replaced by fakes) |
 
@@ -60,7 +60,7 @@ flask --app "app:create_app()" run --port 5001   # open http://localhost:5001
 
 To work on the page with live reloading, keep Flask running and start Vite's dev server in `frontend/` with `npm run dev`; it forwards API requests to Flask on port 5001.
 
-The Whisper, Stanza and MediaPipe models download on the first upload, so the first request is slow. Each sign's 2D animation is also made the first time that sign appears (about a second per sign) and reused after that.
+The Whisper, Stanza and MediaPipe models download on the first upload, so the first request is slow. Each sign's 2D animation is also made the first time that sign appears and reused after that. Tracking is the slow part: about a second per sign on a laptop, and 2.5 to 6 seconds on the deployed server's shared CPUs. To make them ahead of time for the 2,000 most common English words, run `python scripts/make_common_signs.py` (it skips signs already made and can be stopped and resumed).
 
 Settings (environment variables): `SIGNMEUP_WHISPER_MODEL` (default `tiny`), `SIGNMEUP_MAX_UPLOAD_MB` (default 200), `SIGNMEUP_UPLOAD_DIR` (default: the system temp folder), `SIGNMEUP_CACHE_DIR` (where found sign videos and made animations are kept; default: a `signmeup-cache` folder in the system temp folder), `SIGNMEUP_POSE_MODEL` (path to MediaPipe's holistic model; downloaded into the cache folder if not set).
 
@@ -111,6 +111,11 @@ The site is set up to run on [Fly.io](https://fly.io) from the `Dockerfile`. The
 
 `fly.toml` asks for a shared 2-CPU machine with 4 GB of memory, which stops when nobody is using the site and starts on the next visit (that first visit then takes a while). Sign animations and Signbank lookups are cached on a volume mounted at `/data`, so they survive restarts.
 
+Two things keep uploads from waiting:
+
+- The server loads Whisper and Stanza in the background as soon as it starts (`SIGNMEUP_WARM_UP=1` in the image). Loading them took about 8 seconds on Fly (Whisper 2.3 s, Stanza 5.3 s), which the first upload after every start used to wait for.
+- Animations for common words are made ahead of time. `scripts/make_common_signs.py` made 858 signs for the 2,000 most common English words in about 11 minutes on a 10-core Mac, about 70 MB. They were copied to the volume with `fly ssh sftp put` and unpacked into `/data/cache/poses` (without replacing animations already there). Words outside the list are still animated on first use.
+
 On every push to `main`, the GitHub Actions workflow in `.github/workflows/deploy.yml` runs the Python and frontend tests, lint and build; if they pass, it deploys with `flyctl deploy --remote-only` (Fly builds the image, so Docker isn't needed locally). The deploy step is skipped until the `FLY_API_TOKEN` secret is set.
 
 One-time setup:
@@ -131,7 +136,8 @@ To deploy by hand instead, run `fly deploy` from the repository root.
 |---|---|---|---|
 | Sign videos | [ASL Signbank](https://aslsignbank.com) — Hochgesang, J. A., Crasborn, O., & Lillo-Martin, D. (2017–2026). ASL Signbank. https://doi.org/10.6084/m9.figshare.9741788 | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) | Not copied into this repo. The page plays each video from aslsignbank.com and links to its Signbank entry. |
 | Gloss list (`asl_util/data/signbank_glosses.json`) | ASL Signbank's published gloss vocabulary (`asl.ecv`) | CC BY-NC-SA 4.0 | Gloss names, entry IDs and English translations, used to match words to entries. |
-| 2D animations (made in the cache folder, not in this repo) | Tracked with [MediaPipe](https://ai.google.dev/edge/mediapipe) from the ASL Signbank videos | CC BY-NC-SA 4.0 (adapted from the videos) | Made the first time a sign is needed, then served from the cache. |
+| 2D animations (made in the cache folder, not in this repo) | Tracked with [MediaPipe](https://ai.google.dev/edge/mediapipe) from the ASL Signbank videos | CC BY-NC-SA 4.0 (adapted from the videos) | Made the first time a sign is needed (or ahead of time for common words), then served from the cache. |
+| Common words (`asl_util/data/common_words.txt`) | The 2,000 most common English words from [wordfreq](https://github.com/rspeer/wordfreq) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | The words whose signs are animated ahead of time. |
 | Fingerspelling images (`static/img/fingerspelling/`) | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Sign_language_A.svg), from wpclipart.com | Public domain | Bundled unmodified. See `CREDITS.md` there. |
 
 How a word is matched: Signbank glosses are uppercase English words, and a lowercase or digit suffix marks a variant (`CATf`, `CAT8`). Signbank also lists English translations for each entry. A word is matched, best first, to:
@@ -185,3 +191,4 @@ This fork continues the project after the hackathon. Changes so far:
 - Rebuilt the web page in React around the 2D signer, with real processing progress (a background jobs API), audio uploads and a phone layout
 - Added a demo page that signs "Me at the zoo" in YouTube's embedded player
 - Added a Docker image, Fly.io settings and a GitHub Actions workflow that tests pushes and pull requests and deploys `main`
+- Made uploads faster on the server: models load at start-up, and the signs for the 2,000 most common English words are animated ahead of time
