@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { loadPreview } from '../api';
 import { drawFigure } from '../signer/draw';
-import { frameAt, lerpFrame } from '../signer/frames';
+import { frameAt, lerpFrame, withHands } from '../signer/frames';
 import { signName } from '../signer/timeline';
 import type { PoseClip } from '../types';
 
-const HOLD = 0.6; // seconds at rest between loops
+const EASE = 0.45; // seconds to move between a sign and the resting pose
+const HOLD = 0.2; // seconds at rest between signs
 
 /**
  * Real signs, looping on the landing page, so visitors see the signer before uploading.
@@ -25,13 +26,17 @@ export function SignPreview() {
   }, []);
 
   // Cycle through the signs: ease up from rest, sign at 1.25x, ease back down, pause.
+  // Every sign rests in the same pose (the first clip's, with relaxed hands): each dictionary
+  // video has a slightly different resting position and handshape, and switching between them
+  // looked like a jump.
   useEffect(() => {
     const ctx = canvas.current?.getContext('2d');
     if (!ctx || !clips.length) return;
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     let raf = 0;
     const started = performance.now();
-    const ease = 0.35;
+    const ease = EASE;
+    const rest = withHands(clips[0].rest!, { pose: null, leftHand: null, rightHand: null, face: null });
     const lengths = clips.map(c => c.frames.length / c.fps / 1.25);
     const cycle = lengths.reduce((t, l) => t + l + 2 * ease + HOLD, 0);
     let shown = '';
@@ -42,10 +47,10 @@ export function SignPreview() {
       const clip = clips[i];
       const s = (k: number) => k * k * (3 - 2 * k);
       let frame;
-      if (t < ease) frame = lerpFrame(clip.rest, clip.frames[0], s(t / ease));
+      if (t < ease) frame = lerpFrame(rest, clip.frames[0], s(t / ease));
       else if (t < ease + lengths[i]) frame = frameAt(clip.frames, (t - ease) / lengths[i]);
-      else if (t < 2 * ease + lengths[i]) frame = lerpFrame(clip.frames.at(-1)!, clip.rest, s((t - ease - lengths[i]) / ease));
-      else frame = lerpFrame(clip.frames.at(-1)!, clip.rest, 1); // at rest, hands hanging at the sides
+      else if (t < 2 * ease + lengths[i]) frame = lerpFrame(clip.frames.at(-1)!, rest, s((t - ease - lengths[i]) / ease));
+      else frame = rest; // at rest, hands hanging at the sides
       drawFigure(ctx, frame);
       const name = signName(clip.gloss);
       if (name !== shown) { shown = name; setLabel(name); }
