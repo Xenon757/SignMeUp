@@ -32,3 +32,14 @@ def test_demo_endpoint_runs_as_a_job_and_is_cached(client):
 
 def test_demo_page_is_served(frontend):
     assert frontend.get("/demo").status_code == 200
+
+
+def test_demo_result_is_kept_only_when_every_sign_is_animated():
+    from app import all_animated
+
+    def result(*media):
+        return {"segments": [{"signs": [{"media": m} for m in media]}]}
+
+    animated = {"type": "video", "pose": "/poses/482.json"}
+    assert all_animated(result(animated, {"type": "image"}, None))
+    assert not all_animated(result(animated, {"type": "video"}))

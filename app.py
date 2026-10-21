@@ -28,6 +28,16 @@ MAX_UPLOAD_MB = int(os.environ.get("SIGNMEUP_MAX_UPLOAD_MB", "200"))
 log = logging.getLogger("signmeup")
 
 
+def all_animated(result: dict) -> bool:
+    """True if every sign with a Signbank video got its 2D animation."""
+    return all(
+        "pose" in sign["media"]
+        for segment in result["segments"]
+        for sign in segment["signs"]
+        if sign.get("media") and sign["media"].get("type") == "video"
+    )
+
+
 def create_app(
     transcriber=None, glosser=None, upload_dir: str | None = None, media=None, poses=None, frontend_dir=None
 ) -> flask.Flask:
@@ -137,9 +147,13 @@ def create_app(
         """Sign the built-in demo (Me at the zoo). Same job flow as an upload; instant once done."""
 
         def process(report):
-            if not demo_result:
-                demo_result.update(translate_video(None, DemoTranscriber(), glosser, media, progress=report))
-            return demo_result
+            if demo_result:
+                return demo_result
+            result = translate_video(None, DemoTranscriber(), glosser, media, progress=report)
+            # Keep it only if every sign got its animation, so a failed one is retried next time.
+            if all_animated(result):
+                demo_result.update(result)
+            return result
 
         status = jobs.status(jobs.submit(process))
         return flask.jsonify({**status, "demo": demo_info()}), 202
