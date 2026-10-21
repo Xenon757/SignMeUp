@@ -165,3 +165,17 @@ def test_animated_sign_video_is_served_locally_and_seekable(client):
     res = client.get("/poses/482.mp4", headers={"Range": "bytes=0-1"})
     assert res.status_code == 206  # partial content: the browser can seek
     assert client.get("/poses/999.mp4").status_code == 404
+
+
+def test_preview_makes_and_lists_the_landing_page_signs(client, monkeypatch):
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "PREVIEW_WORDS", ["hello"])
+    signs = client.get("/api/preview").get_json()
+    assert [s["gloss"] for s in signs] == ["HELLO"]
+    assert client.get(signs[0]["pose"]).status_code == 200
+
+
+def test_preview_leaves_out_signs_without_an_animation(client):
+    # The fake Signbank only has HELLO; the other preview words have no video.
+    assert [s["gloss"] for s in client.get("/api/preview").get_json()] == ["HELLO"]

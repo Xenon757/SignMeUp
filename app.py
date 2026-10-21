@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 
@@ -17,13 +18,17 @@ from asl_util.pipeline import translate_video
 from asl_util.poses import PoseStore
 from asl_util.signbank import GlossIndex, SignMedia, VideoResolver
 from asl_util.transcribe import TranscriptionError, WhisperTranscriber
-from asl_util.translate import StanzaGlosser
+from asl_util.translate import Sign, StanzaGlosser
 
 # The React app (frontend/), built with `npm run build`.
 FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
 
 ALLOWED_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".mp3", ".wav", ".m4a"}
 MAX_UPLOAD_MB = int(os.environ.get("SIGNMEUP_MAX_UPLOAD_MB", "200"))
+
+# Signs looped on the landing page, picked by eye for clear, readable animations
+# (hands near the face or chest, steady tracking).
+PREVIEW_WORDS = ["hello", "elephant", "thank", "drink", "friend"]
 
 log = logging.getLogger("signmeup")
 
@@ -115,6 +120,21 @@ def create_app(
         if not poses.has_animation(entry_id):
             return error("No animation for this sign.", 404)
         return flask.send_file(poses.path(entry_id), mimetype="application/json", max_age=86400)
+
+    preview: list = []  # the landing page's signs, kept once all are animated
+    preview_lock = threading.Lock()
+
+    @app.get("/api/preview")
+    def preview_signs():
+        """The landing page's example signs, making their animations the first time."""
+        with preview_lock:  # so two first visitors don't make the same animations twice
+            if not preview:
+                found = media.for_signs([Sign(w, w, "sign") for w in PREVIEW_WORDS])
+                signs = [{"gloss": m["gloss"], "pose": m["pose"]} for m in found if m and "pose" in m]
+                if len(signs) < len(PREVIEW_WORDS):
+                    return flask.jsonify(signs)  # try the missing ones again next time
+                preview.extend(signs)
+        return flask.jsonify(preview)
 
     @app.get("/healthz")
     def healthz():
