@@ -11,7 +11,7 @@ A user uploads a video or audio file. SignMeUp transcribes it with OpenAI's Whis
 
 Dictionary videos are too slow to keep up with speech (each one starts and ends with the hands at rest, and runs about 2.5 seconds), so the figure plays only the part of each sign where the hands are moving, and moves straight from one sign into the next. Each sentence is signed in one of two modes. When the speech is slow enough, each sign is lined up with its word (starting within half a second of it). In fast stretches, it works like closed captions instead: the sentence's signs start when the sentence starts and share the time until the next one. Signs play at 1.5×, and up to 3× when needed. Under the figure, the sentence being signed is shown with the current word highlighted. Words with no sign are fingerspelled, shown as a row of letter handshapes that is never sped up.
 
-Tracked points are smoothed over time (a Gaussian over about 3 frames), which cuts finger jitter by about two thirds on the test video's signs. When the hands overlap, the tracker sometimes reports one hand as both; that duplicate is removed and the hidden hand is found again by running MediaPipe's hand model on a zoomed-in crop around its wrist. Hands are drawn as solid shapes with fingers in depth order, the nearer arm and hand in front, and the palm is shaded differently from the back of the hand so palm orientation is visible. `/compare` plays any animated sign's Signbank video next to its animation, frame by frame, to check accuracy.
+Tracked points are smoothed over time (a Gaussian over about 3 frames), which cuts finger jitter by about two thirds on the test video's signs. When the hands overlap, the tracker sometimes reports one hand as both; that duplicate is removed and the hidden hand is found again by running MediaPipe's hand model on a zoomed-in crop around its wrist. Hands are drawn as solid shapes with fingers in depth order, the nearer arm and hand in front, and the palm is shaded differently from the back of the hand so palm orientation is visible. On `/compare` you can type any word: it finds the word's Signbank sign (trying its base form too, as uploads do, so "running" finds `RUN`), makes the animation if needed, and plays the Signbank video next to it, frame by frame, to check accuracy.
 
 An **Optimize for ASL** button slows the video down (keeping the audio's pitch) so the signs have more time. It picks the fastest speed at which 90% of sentences can be signed at a comfortable pace, and never goes below 0.5×. The 30-second test video is dense enough that it uses 0.5×; at that speed 10 of its 12 sentences line up with the speech, against 4 at normal speed.
 
@@ -100,6 +100,8 @@ There is one segment per sentence, timed from its first to its last word (Whispe
 Errors return `{"error": "..."}` with status 400 (no file), 413 (too large), 415 (unsupported type) or 422 (no speech found or the audio couldn't be transcribed).
 
 `GET /api/preview` lists the signs looped on the landing page (`gloss` and `pose`), making their animations the first time. They're a fixed list in `app.py` (`PREVIEW_WORDS`), picked by eye for clear animations.
+
+`GET /api/sign?word=<word>` finds a word's sign the same way and makes its animation, returning `gloss`, `id`, `pose` and `page` (404 if Signbank has no sign for it, 422 if its video couldn't be animated).
 
 `POST /api/demo` starts (or returns, once made) the demo's job in the same format, plus a `demo` object with the YouTube video id, title and credit.
 
