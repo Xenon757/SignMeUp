@@ -207,3 +207,39 @@ def test_sign_lookup_falls_back_to_the_base_form(transcriber, upload_dir, poses)
     app = create_app(transcriber=transcriber, glosser=Lemmatizer(), upload_dir=str(upload_dir),
                      media=fake_media(poses), poses=poses)
     assert app.test_client().get("/api/sign?word=hellos").get_json()["gloss"] == "HELLO"
+
+
+
+class WarmUpModel:
+    def __init__(self, fail=False):
+        self.loaded, self.fail = False, fail
+
+    def warm_up(self):
+        if self.fail:
+            raise RuntimeError("no model")
+        self.loaded = True
+
+
+def test_warm_up_loads_every_model_even_if_one_fails():
+    from app import warm_up
+
+    broken, working = WarmUpModel(fail=True), WarmUpModel()
+    warm_up(broken, working)
+    assert working.loaded
+
+
+def test_server_warms_up_models_in_the_background_when_asked(monkeypatch, upload_dir, poses):
+    import app as app_module
+
+    class RunNow:  # stands in for threading.Thread, running the target straight away
+        def __init__(self, target, args, daemon):
+            self.run = lambda: target(*args)
+
+        def start(self):
+            self.run()
+
+    monkeypatch.setattr(app_module.threading, "Thread", RunNow)
+    monkeypatch.setenv("SIGNMEUP_WARM_UP", "1")
+    transcriber, glosser = WarmUpModel(), WarmUpModel()
+    create_app(transcriber=transcriber, glosser=glosser, upload_dir=str(upload_dir), media=fake_media(poses), poses=poses)
+    assert transcriber.loaded and glosser.loaded

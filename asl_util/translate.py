@@ -11,6 +11,7 @@ loading Stanza. `StanzaGlosser` is the thin layer that runs the real parser.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional
 
@@ -162,21 +163,30 @@ class StanzaGlosser:
     def __init__(self, use_gpu: bool = False):
         self._use_gpu = use_gpu
         self._nlp = None
+        self._lock = threading.Lock()  # the server warms up in one thread while a job may start in another
+
+    def warm_up(self) -> None:
+        """Load the parser now instead of on the first upload."""
+        self._pipeline()
 
     def _pipeline(self):
-        if self._nlp is None:
-            import stanza  # heavy import, deferred until actually needed
-
-            self._nlp = stanza.Pipeline(
-                lang="en",
-                processors=STANZA_PROCESSORS,
-                use_gpu=self._use_gpu,
-                verbose=False,
-                # Use models already on disk (baked into the deployed image) instead of
-                # checking for updates online at every start; downloads only if missing.
-                download_method=stanza.DownloadMethod.REUSE_RESOURCES,
-            )
+        with self._lock:
+            if self._nlp is None:
+                self._nlp = self._load_pipeline()
         return self._nlp
+
+    def _load_pipeline(self):
+        import stanza  # heavy import, deferred until actually needed
+
+        return stanza.Pipeline(
+            lang="en",
+            processors=STANZA_PROCESSORS,
+            use_gpu=self._use_gpu,
+            verbose=False,
+            # Use models already on disk (baked into the deployed image) instead of
+            # checking for updates online at every start; downloads only if missing.
+            download_method=stanza.DownloadMethod.REUSE_RESOURCES,
+        )
 
     def to_signs(self, text: str) -> List[Sign]:
         doc = self._pipeline()(text)

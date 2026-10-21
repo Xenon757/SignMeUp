@@ -8,6 +8,7 @@ spread evenly across the video.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -57,10 +58,18 @@ class WhisperTranscriber:
         self.device = device or _pick_device()
         self._model = None
         self._backend: Optional[str] = None
+        self._lock = threading.Lock()  # the server warms up in one thread while a job may start in another
+
+    def warm_up(self) -> None:
+        """Load the model now instead of on the first upload."""
+        self._load()
 
     def _load(self):
-        if self._model is not None:
-            return
+        with self._lock:
+            if self._model is None:
+                self._load_model()
+
+    def _load_model(self):
         try:
             from faster_whisper import WhisperModel
 

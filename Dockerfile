@@ -16,7 +16,8 @@ ENV PYTHONUNBUFFERED=1 \
     STANZA_RESOURCES_DIR=/models/stanza \
     SIGNMEUP_POSE_MODEL=/models/mediapipe/holistic_landmarker.task \
     SIGNMEUP_CACHE_DIR=/data/cache \
-    SIGNMEUP_UPLOAD_DIR=/tmp
+    SIGNMEUP_UPLOAD_DIR=/tmp \
+    SIGNMEUP_WARM_UP=1
 
 # System libraries for OpenCV (libgl1, libglib2.0-0) and for MediaPipe (libEGL, libGLESv2).
 RUN apt-get update \

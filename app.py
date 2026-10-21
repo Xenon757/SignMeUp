@@ -47,6 +47,14 @@ def all_animated(result: dict) -> bool:
     )
 
 
+def warm_up(*models) -> None:
+    for model in models:
+        try:
+            model.warm_up()
+        except Exception:  # the first upload will try again and report the error
+            log.exception("Could not load %s", type(model).__name__)
+
+
 def create_app(
     transcriber=None, glosser=None, upload_dir: str | None = None, media=None, poses=None, frontend_dir=None
 ) -> flask.Flask:
@@ -57,6 +65,10 @@ def create_app(
     # Models load lazily on the first upload and are shared by every request after.
     transcriber = transcriber or WhisperTranscriber(os.environ.get("SIGNMEUP_WHISPER_MODEL", "tiny"))
     glosser = glosser or StanzaGlosser()
+    if os.environ.get("SIGNMEUP_WARM_UP") == "1":
+        # On the server, load them in the background right away, so the first upload after a
+        # start doesn't wait about 8 s for them.
+        threading.Thread(target=warm_up, args=(transcriber, glosser), daemon=True).start()
     uploads = Path(upload_dir or os.environ.get("SIGNMEUP_UPLOAD_DIR", tempfile.gettempdir())) / "signmeup"
     uploads.mkdir(parents=True, exist_ok=True)
     # Sign videos are looked up on ASL Signbank once per sign, and turned into 2D pose
