@@ -98,6 +98,8 @@ There is one segment per sentence, timed from its first to its last word (Whispe
 
 Errors return `{"error": "..."}` with status 400 (no file), 413 (too large), 415 (unsupported type) or 422 (no speech found or the audio couldn't be transcribed).
 
+`GET /api/preview` lists the signs looped on the landing page (`gloss` and `pose`), making their animations the first time. They're a fixed list in `app.py` (`PREVIEW_WORDS`), picked by eye for clear animations.
+
 `POST /api/demo` starts (or returns, once made) the demo's job in the same format, plus a `demo` object with the YouTube video id, title and credit.
 
 ## Deploying
