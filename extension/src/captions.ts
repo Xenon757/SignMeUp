@@ -37,6 +37,48 @@ export function linesFromJson3(data: Json3): CaptionLine[] {
   return lines.sort((a, b) => a.start - b.start);
 }
 
+const decode = (text: string) =>
+  text
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+const attr = (tag: string, name: string) => tag.match(new RegExp(`\\b${name}="([^"]*)"`))?.[1];
+
+/**
+ * YouTube's XML caption formats: "srv3" (<p t="ms" d="ms">, words as <s t="offset">) and the
+ * older one (<text start="s" dur="s">).
+ */
+export function linesFromXml(xml: string): CaptionLine[] {
+  const events: NonNullable<Json3['events']> = [];
+  for (const [, tag, inner] of xml.matchAll(/<p\b([^>]*)>([\s\S]*?)<\/p>/g)) {
+    const words = [...inner.matchAll(/<s\b([^>]*)>([\s\S]*?)<\/s>/g)];
+    const segs = words.length
+      ? words.map(([, wTag, text]) => ({ utf8: decode(text), tOffsetMs: attr(wTag, 't') ? Number(attr(wTag, 't')) : undefined }))
+      : [{ utf8: decode(inner) }];
+    events.push({ tStartMs: Number(attr(tag, 't') ?? NaN), dDurationMs: Number(attr(tag, 'd') ?? 0), segs });
+  }
+  for (const [, tag, inner] of xml.matchAll(/<text\b([^>]*)>([\s\S]*?)<\/text>/g)) {
+    const start = Number(attr(tag, 'start') ?? NaN) * 1000;
+    events.push({ tStartMs: start, dDurationMs: Number(attr(tag, 'dur') ?? 0) * 1000, segs: [{ utf8: decode(decode(inner)) }] });
+  }
+  return linesFromJson3({ events: events.filter(e => Number.isFinite(e.tStartMs)) });
+}
+
+/** Lines from a caption file in whichever format YouTube sent (json3 or XML). */
+export function linesFromCaptionFile(body: string): CaptionLine[] {
+  const text = body.trim();
+  if (text.startsWith('{')) {
+    try {
+      return linesFromJson3(JSON.parse(text));
+    } catch {
+      return [];
+    }
+  }
+  return text.startsWith('<') ? linesFromXml(text) : [];
+}
+
 /** Captions are signed a minute at a time, so the first signs come back in about a second. */
 export const CHUNK_SECONDS = 60;
 export const CHUNKS_AHEAD = 4; // keep this many minutes ahead of the viewer

@@ -7,8 +7,8 @@ import type { Clip } from '../../frontend/src/signer/timeline';
 import { buildTimeline, latestClip, restFrameOf, stateAt } from '../../frontend/src/signer/timeline';
 import type { Frame, PoseClip, Segment } from '../../frontend/src/types';
 import type { Reply, Request } from './background';
-import type { CaptionLine, Json3 } from './captions';
-import { chunkLines, chunkOf, chunksToFetch, linesFromJson3 } from './captions';
+import type { CaptionLine } from './captions';
+import { chunkLines, chunkOf, chunksToFetch, linesFromCaptionFile } from './captions';
 
 const SPELL_FADE = 0.15; // seconds a fingerspelled word takes to fade in and out, as on the website
 
@@ -27,6 +27,12 @@ const poses: Record<string, PoseClip> = {};
 let timeline: Clip[] = [];
 let rest: Frame | null = null;
 let fetching = false;
+// Asking page.ts for captions: when last asked, how many times, and whether the answer was final.
+let askedAt = 0;
+let asks = 0;
+let settled = false;
+const ASK_EVERY = 3000; // ms
+const MAX_ASKS = 20;
 
 function currentVideoId(): string | null {
   return location.pathname === '/watch' ? new URLSearchParams(location.search).get('v') : null;
@@ -49,20 +55,43 @@ function start(id: string | null) {
   requested.clear();
   chunks.clear();
   timeline = [];
+  asks = 0;
+  settled = false;
   if (!id) return;
   setStatus('Getting captions…');
-  window.postMessage({ source: 'signmeup-content', type: 'find-captions' }, location.origin);
+  askForCaptions();
+}
+
+function askForCaptions() {
+  askedAt = Date.now();
+  asks++;
+  window.postMessage({ source: 'signmeup-content', type: 'find-captions', videoId }, location.origin);
+}
+
+/** Ask again if no answer came: the player may not have been ready, or YouTube was slow. */
+function askAgainIfNeeded() {
+  if (!videoId || settled || Date.now() - askedAt < ASK_EVERY) return;
+  if (asks >= MAX_ASKS) {
+    settled = true;
+    return setStatus('Could not get this video’s captions. Try reloading the page.');
+  }
+  askForCaptions();
 }
 
 // Captions from page.ts.
 window.addEventListener('message', event => {
   const data = event.data;
   if (event.source !== window || data?.source !== 'signmeup-page' || data.type !== 'captions') return;
-  if (data.videoId !== videoId) return;
-  if (data.error === 'no-english') return setStatus('This video has no English captions to sign.');
-  if (!data.data) return setStatus('Could not get this video’s captions.');
-  lines = linesFromJson3(data.data as Json3);
-  if (!lines.length) return setStatus('This video’s captions are empty.');
+  if (data.videoId !== videoId || settled) return;
+  if (data.error === 'no-english') {
+    settled = true;
+    return setStatus('This video has no English captions to sign.');
+  }
+  if (typeof data.body !== 'string') return; // not ready yet: asked again shortly
+  const found = linesFromCaptionFile(data.body);
+  if (!found.length) return; // not a caption file we can read: asked again shortly
+  settled = true;
+  lines = found;
   lastChunk = chunkOf(lines.at(-1)!.start);
   setStatus('Signing…');
   fetchAhead();
@@ -183,6 +212,7 @@ function tick() {
 setInterval(() => {
   const id = currentVideoId();
   if (id !== videoId) start(id);
+  else if (!lines.length) askAgainIfNeeded();
   else fetchAhead();
 }, 1000);
 document.addEventListener('seeked', () => fetchAhead(), true);
