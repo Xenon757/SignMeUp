@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from asl_util.poses import HAND_MODEL_URL, MODEL_URL, download  # noqa: E402
-from asl_util.translate import STANZA_PROCESSORS  # noqa: E402
+from asl_util.translate import STANZA_PACKAGE, STANZA_PROCESSORS  # noqa: E402
 
 
 def main() -> None:
@@ -34,7 +34,7 @@ def main() -> None:
 
     import stanza
 
-    stanza.download("en", processors=STANZA_PROCESSORS, verbose=False)
+    stanza.download("en", package=STANZA_PACKAGE, processors=STANZA_PROCESSORS, verbose=False)
     print("Stanza English: ready")
 
     pose_dir = models / "mediapipe"

@@ -11,6 +11,7 @@ loading Stanza. `StanzaGlosser` is the thin layer that runs the real parser.
 
 from __future__ import annotations
 
+import os
 import threading
 from dataclasses import dataclass, field
 from typing import Iterable, List, Optional
@@ -151,6 +152,10 @@ def gloss_string(signs: Iterable[Sign]) -> str:
 
 # Stanza processors the translation needs (also downloaded ahead of time by scripts/download_models.py).
 STANZA_PROCESSORS = "tokenize,pos,lemma,depparse"
+# Stanza's "default_fast" English models skip the character language model, which made up most
+# of the parsing time. On 44 test texts they parsed 4.6x faster (0.71 s against 3.30 s) and gave
+# the same signs for 35 (23 of 666 words differed); set "default" for the slower models.
+STANZA_PACKAGE = os.environ.get("SIGNMEUP_STANZA_PACKAGE", "default_fast")
 
 
 class StanzaGlosser:
@@ -182,6 +187,7 @@ class StanzaGlosser:
         return stanza.Pipeline(
             lang="en",
             processors=STANZA_PROCESSORS,
+            package=STANZA_PACKAGE,
             use_gpu=self._use_gpu,
             verbose=False,
             # Use models already on disk (baked into the deployed image) instead of
