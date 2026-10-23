@@ -108,6 +108,10 @@ class GlossIndex:
         found.extend(c for c in self._by_root.get(key, []) if c[0] != key)
         return found
 
+    def entries(self) -> List[Tuple[str, int]]:
+        """Every (gloss, entry ID) in the index, by gloss."""
+        return sorted(self._exact.items())
+
     def translations(self, gloss: str) -> List[str]:
         return self._translations.get(gloss, [])
 

@@ -239,3 +239,7 @@ def test_keeps_the_video_when_no_variant_animates():
     finder = SignMedia(GlossIndex(GLOSSES), VideoResolver(fetch=pages), poses=FakePoseStore(set()))
     found = finder.for_sign(Sign("cat", "cat", "sign"))
     assert found["gloss"] == "CAT8" and "pose" not in found
+
+
+def test_index_lists_every_entry_by_gloss():
+    assert GlossIndex({"CATf": 1037, "CAT8": 347}).entries() == [("CAT8", 347), ("CATf", 1037)]
