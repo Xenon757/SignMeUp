@@ -122,7 +122,7 @@ The site is set up to run on [Fly.io](https://fly.io) from the `Dockerfile`. The
 Two things keep uploads from waiting:
 
 - The server loads Whisper and Stanza in the background as soon as it starts (`SIGNMEUP_WARM_UP=1` in the image). Loading them took about 8 seconds on Fly (Whisper 2.3 s, Stanza 5.3 s), which the first upload after every start used to wait for.
-- Animations for common words are made ahead of time. `scripts/make_common_signs.py` made 858 signs for the 2,000 most common English words in about 11 minutes on a 10-core Mac, about 70 MB. They were copied to the volume with `fly ssh sftp put` and unpacked into `/data/cache/poses` (without replacing animations already there). Words outside the list are still animated on first use.
+- Animations for common words are made ahead of time. `scripts/make_common_signs.py` made 858 signs for the 2,000 most common English words in about 11 minutes on a 10-core Mac, about 70 MB. For the browser extension, `--all` then made every Signbank entry that has a video: 3,509 of the 4,527 entries (the other 1,018 have no video on Signbank), in about 45 minutes on the Mac, 338 MB. They were copied to the volume with `fly ssh sftp put` and unpacked into `/data/cache/poses` (without replacing animations already there), so no sign has to be made while someone is waiting.
 
 On every push to `main`, the GitHub Actions workflow in `.github/workflows/deploy.yml` runs the Python and frontend tests, lint and build; if they pass, it deploys with `flyctl deploy --remote-only` (Fly builds the image, so Docker isn't needed locally). The deploy step is skipped until the `FLY_API_TOKEN` secret is set.
 
@@ -164,7 +164,7 @@ It was tested against a stand-in for YouTube's watch page (a local page with the
 |---|---|---|---|
 | Sign videos | [ASL Signbank](https://aslsignbank.com) — Hochgesang, J. A., Crasborn, O., & Lillo-Martin, D. (2017–2026). ASL Signbank. https://doi.org/10.6084/m9.figshare.9741788 | [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) | Not copied into this repo. The page plays each video from aslsignbank.com and links to its Signbank entry. |
 | Gloss list (`asl_util/data/signbank_glosses.json`) | ASL Signbank's published gloss vocabulary (`asl.ecv`) | CC BY-NC-SA 4.0 | Gloss names, entry IDs and English translations, used to match words to entries. |
-| 2D animations (made in the cache folder, not in this repo) | Tracked with [MediaPipe](https://ai.google.dev/edge/mediapipe) from the ASL Signbank videos | CC BY-NC-SA 4.0 (adapted from the videos) | Made the first time a sign is needed (or ahead of time for common words), then served from the cache. |
+| 2D animations (made in the cache folder, not in this repo) | Tracked with [MediaPipe](https://ai.google.dev/edge/mediapipe) from the ASL Signbank videos | CC BY-NC-SA 4.0 (adapted from the videos) | Made ahead of time for every Signbank entry with a video (or the first time a sign is needed), then served from the cache. |
 | Common words (`asl_util/data/common_words.txt`) | The 2,000 most common English words from [wordfreq](https://github.com/rspeer/wordfreq) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | The words whose signs are animated ahead of time. |
 | Fingerspelling images (`static/img/fingerspelling/`) | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Sign_language_A.svg), from wpclipart.com | Public domain | Bundled unmodified. See `CREDITS.md` there. |
 
