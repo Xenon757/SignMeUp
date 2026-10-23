@@ -89,8 +89,11 @@ def test_video_output_has_one_segment_per_sentence():
     assert out["transcript"] == THREE_SENTENCES.text
 
 
-def test_progress_is_reported_through_each_stage():
+def test_progress_is_reported_through_each_stage(monkeypatch):
     from conftest import FakeGlosser, fake_media
+    import asl_util.pipeline as pipeline
+
+    monkeypatch.setattr(pipeline, "BATCH", 2)
     seen = []
     translate_video(
         "v.mp4", FakeTranscriber(segments=[THREE_SENTENCES]), FakeGlosser(), fake_media(),
@@ -98,5 +101,20 @@ def test_progress_is_reported_through_each_stage():
     )
     stages = [s for s, _, _ in seen]
     assert stages[0] == "transcribing"
-    assert [d for s, d, t in seen if s == "translating"] == [0, 1, 2]  # one per sentence
+    assert [d for s, d, t in seen if s == "translating"] == [0, 2]  # one per batch of sentences
     assert seen[-1][0] == "animating" and seen[-1][1] == seen[-1][2]  # finishes with every word done
+
+
+def test_sentences_are_parsed_in_batches_when_the_glosser_can():
+    from conftest import FakeGlosser
+
+    batches = []
+
+    class BatchGlosser(FakeGlosser):
+        def to_signs_many(self, texts):
+            batches.append(len(texts))
+            return [self.to_signs(text) for text in texts]
+
+    result = translate_video("v.mp4", FakeTranscriber(segments=[THREE_SENTENCES]), BatchGlosser())
+    assert batches == [3]
+    assert [len(seg["signs"]) for seg in result["segments"]] == [len(seg["text"].split()) for seg in result["segments"]]

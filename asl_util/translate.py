@@ -190,13 +190,19 @@ class StanzaGlosser:
         )
 
     def to_signs(self, text: str) -> List[Sign]:
+        return self.to_signs_many([text])[0]
+
+    def to_signs_many(self, texts: List[str]) -> List[List[Sign]]:
+        """Signs for several texts at once: parsing them together is several times faster."""
+        import stanza
+
         nlp = self._pipeline()
         with self._run_lock:
-            doc = nlp(text)
-        signs: List[Sign] = []
-        for sentence in doc.sentences:
-            signs.extend(sentence_to_signs(words_from_stanza(sentence)))
-        return signs
+            docs = nlp.bulk_process([stanza.Document([], text=text) for text in texts])
+        return [
+            [sign for sentence in doc.sentences for sign in sentence_to_signs(words_from_stanza(sentence))]
+            for doc in docs
+        ]
 
 
 def words_from_stanza(sentence) -> List[Word]:

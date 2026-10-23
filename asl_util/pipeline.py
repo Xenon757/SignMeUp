@@ -19,6 +19,16 @@ class Glosser(Protocol):
     def to_signs(self, text: str) -> List[Sign]: ...
 
 
+# Sentences are parsed in batches (when the glosser can), which is several times faster than
+# one at a time; progress is reported after each batch.
+BATCH = 16
+
+
+def signs_for(glosser: Glosser, texts: List[str]) -> List[List[Sign]]:
+    many = getattr(glosser, "to_signs_many", None)
+    return many(texts) if many else [glosser.to_signs(text) for text in texts]
+
+
 class MediaFinder(Protocol):
     def for_signs(self, signs: List[Sign], on_progress: Optional[Callable[[int, int], None]] = None) -> List[Optional[dict]]: ...
 
@@ -117,9 +127,11 @@ def translate_video(
     out_segments = []
     all_signs: List[Sign] = []
     sentences = [sentence for segment in segments for sentence in split_sentences(segment)]
-    for i, seg in enumerate(sentences):
+    translated: List[List[Sign]] = []
+    for i in range(0, len(sentences), BATCH):
         report("translating", i, len(sentences))
-        signs = glosser.to_signs(seg.text)
+        translated += signs_for(glosser, [seg.text for seg in sentences[i : i + BATCH]])
+    for seg, signs in zip(sentences, translated):
         all_signs.extend(signs)
         positions = word_positions(seg.text, seg.words)
         out_signs = []
