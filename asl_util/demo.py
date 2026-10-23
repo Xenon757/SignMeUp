@@ -12,7 +12,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from .transcribe import Segment, SpokenWord
+from .pipeline import timed_words
+from .transcribe import Segment
 
 YOUTUBE_ID = "jNQXAC9IVRw"
 TITLE = "Me at the zoo"
@@ -25,18 +26,6 @@ SENTENCES = [
     (12.2, 14.6, "And that's cool."),
     (15.0, 17.8, "And that's pretty much all there is to say."),
 ]
-
-
-def timed_words(start: float, end: float, text: str) -> List[SpokenWord]:
-    """Words spread across the sentence in proportion to their length, as speech roughly is."""
-    words = text.split()
-    total = sum(len(w) + 1 for w in words)
-    out, t = [], start
-    for w in words:
-        length = (end - start) * (len(w) + 1) / total
-        out.append(SpokenWord(round(t, 2), round(t + length, 2), w))
-        t += length
-    return out
 
 
 def demo_segments() -> List[Segment]:

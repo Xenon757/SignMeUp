@@ -50,6 +50,18 @@ def spoken_at(start_char: Optional[int], positions: List[Tuple[int, float]], fal
     return positions[max(i, 0)][1]
 
 
+def timed_words(start: float, end: float, text: str) -> List[SpokenWord]:
+    """Words spread across a stretch of speech in proportion to their length, as speech roughly is."""
+    words = text.split()
+    total = sum(len(w) + 1 for w in words)
+    out, t = [], start
+    for w in words:
+        length = (end - start) * (len(w) + 1) / total
+        out.append(SpokenWord(round(t, 2), round(t + length, 2), w))
+        t += length
+    return out
+
+
 SENTENCE_ENDINGS = (".", "?", "!")
 
 
