@@ -180,10 +180,13 @@ export function drawFigure(ctx: CanvasRenderingContext2D, frame: Frame | null) {
 // outline colour is kept so the letters match the figure's style.
 const letterImages: Record<string, HTMLImageElement> = {};
 const tintedLetters: Record<string, HTMLCanvasElement> = {};
+let letterBase = '/static/img/fingerspelling/';
+/** Where the letter images are, for pages not served by SignMeUp (the browser extension). */
+export const setLetterBase = (base: string) => { letterBase = base; };
 function letterImage(ch: string) {
   if (!letterImages[ch]) {
     letterImages[ch] = new Image();
-    letterImages[ch].src = `/static/img/fingerspelling/${ch}.svg`;
+    letterImages[ch].src = `${letterBase}${ch}.svg`;
   }
   return letterImages[ch];
 }
