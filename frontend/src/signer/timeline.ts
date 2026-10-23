@@ -16,9 +16,10 @@ export const LAST_SENTENCE_EXTRA = 1.0; // seconds the last sentence may run pas
 export const BLEND = 0.12; // seconds to blend one sign straight into the next
 export const HOLD = 0.4; // in a pause, hold the last sign this long...
 export const EASE = 0.3; // ...then ease to or from the resting pose over this long
-// Fingerspelling is shown as a row of still handshape pictures, which need time to read, so it
-// is never sped up: a spelled word stays up for SPELL_TIME plus a little per letter, and the
-// animated signs around it absorb any speed-up instead.
+// Fingerspelling is shown as a row of still handshape pictures, read at a glance like a word: a
+// spelled word stays up for SPELL_TIME plus a little per letter. In fast stretches it is shortened
+// along with the signs around it (by speed / BASE_SPEED, so at most to half), instead of holding
+// up every sign after it.
 export const SPELL_TIME = 0.8;
 export const SPELL_TIME_PER_LETTER = 0.05;
 export const UNSIGNED_WORD_TIME = 0.45; // a word with no sign at all: only highlighted in the sentence
@@ -54,8 +55,11 @@ export interface Clip extends DraftClip {
 
 type Placement = Pick<Clip, 'start' | 'length' | 'speed' | 'behind'>;
 
-/** How long a clip lasts at a given speed. Fingerspelling always plays at its own pace. */
-const lengthAt = (clip: DraftClip, speed: number) => (clip.kind === 'spell' ? clip.natural : clip.natural / speed);
+/** How long a clip lasts at a given speed. Fingerspelling's own time counts as BASE_SPEED. */
+const lengthAt = (clip: DraftClip, speed: number) => (clip.kind === 'spell' ? (clip.natural * BASE_SPEED) / speed : clip.natural / speed);
+
+/** The speed at which a clip would just fill `room` seconds. */
+const speedToFit = (clip: DraftClip, room: number) => (clip.kind === 'spell' ? clip.natural * BASE_SPEED : clip.natural) / room;
 
 /**
  * A sentence's signs as clips, before timing. `rate` is the media's playback rate: at 0.7 a
@@ -101,7 +105,7 @@ export function tryAlign(own: DraftClip[], from: number, windowEnd: number): Pla
     const start = Math.max(clip.word, free);
     const nextAt = k + 1 < own.length ? Math.max(own[k + 1].word, start) : windowEnd;
     const room = nextAt - start - BLEND / BASE_SPEED;
-    const speed = Math.min(MAX_SPEED, Math.max(BASE_SPEED, clip.natural / Math.max(0.05, room)));
+    const speed = Math.min(MAX_SPEED, Math.max(BASE_SPEED, speedToFit(clip, Math.max(0.05, room))));
     placed.push({ start, speed, length: lengthAt(clip, speed), behind: start - clip.word });
     free = start + lengthAt(clip, speed) + BLEND / speed;
   });
@@ -111,11 +115,10 @@ export function tryAlign(own: DraftClip[], from: number, windowEnd: number): Pla
 
 /** Fit all of a sentence's signs, in order, between `from` and windowEnd. */
 export function packSentence(own: DraftClip[], from: number, windowEnd: number, sentenceStart: number): Placement[] {
-  // Fingerspelling keeps its time; the animated signs share whatever is left.
-  const spelling = own.filter(c => c.kind === 'spell').reduce((t, c) => t + c.natural, 0);
-  const needed = own.filter(c => c.kind !== 'spell').reduce((t, c) => t + c.natural, 0) + BLEND * (own.length - 1);
-  const room = Math.max(0.3, windowEnd - from - spelling);
-  const speed = Math.min(MAX_SPEED, Math.max(BASE_SPEED, needed / room));
+  // Every clip's length is (its time at BASE_SPEED) * BASE_SPEED / speed, so one speed fits them all.
+  const atBase = own.reduce((t, c) => t + lengthAt(c, BASE_SPEED), 0) + (BLEND * (own.length - 1)) / BASE_SPEED;
+  const room = Math.max(0.3, windowEnd - from);
+  const speed = Math.min(MAX_SPEED, Math.max(BASE_SPEED, (BASE_SPEED * atBase) / room));
   let t = from;
   return own.map(clip => {
     const placed = { start: t, speed, length: lengthAt(clip, speed), behind: from - sentenceStart };

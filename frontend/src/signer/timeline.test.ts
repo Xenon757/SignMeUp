@@ -52,11 +52,18 @@ describe('timeline', () => {
     expect(clips.some(c => c.behind > ALIGN_TOLERANCE) || clips[0].speed > BASE_SPEED).toBe(true);
   });
 
-  it('never speeds up fingerspelling', () => {
+  it('gives fingerspelling its full time when there is room', () => {
+    const clips = buildTimeline([sentence(0, 10, [spelled('mat', 0)])], POSES);
+    expect(clips[0].length).toBeCloseTo(spellTime(3));
+  });
+
+  it('shortens fingerspelling along with the signs in fast speech, at most to half', () => {
     const words = ['a', 'b', 'c'].map((w, i) => animated(w, i * 0.1));
-    const clips = buildTimeline([sentence(0, 1, [...words, spelled('mat', 0.4)])], POSES);
+    const clips = buildTimeline([sentence(0, 1, [...words, spelled('beautiful', 0.4)])], POSES);
     const spell = clips.find(c => c.kind === 'spell')!;
-    expect(spell.length).toBeCloseTo(spellTime(3));
+    expect(spell.length).toBeLessThan(spellTime(9));
+    expect(spell.length).toBeGreaterThanOrEqual(spellTime(9) / 2 - 1e-9);
+    expect(spell.length / spellTime(9)).toBeCloseTo(BASE_SPEED / clips[0].speed);
   });
 
   it('gives each sign less media time when the media is slowed down', () => {
