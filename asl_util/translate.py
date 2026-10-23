@@ -164,6 +164,7 @@ class StanzaGlosser:
         self._use_gpu = use_gpu
         self._nlp = None
         self._lock = threading.Lock()  # the server warms up in one thread while a job may start in another
+        self._run_lock = threading.Lock()  # uploads and caption requests share one parser
 
     def warm_up(self) -> None:
         """Load the parser now instead of on the first upload."""
@@ -189,7 +190,9 @@ class StanzaGlosser:
         )
 
     def to_signs(self, text: str) -> List[Sign]:
-        doc = self._pipeline()(text)
+        nlp = self._pipeline()
+        with self._run_lock:
+            doc = nlp(text)
         signs: List[Sign] = []
         for sentence in doc.sentences:
             signs.extend(sentence_to_signs(words_from_stanza(sentence)))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -13,6 +14,7 @@ from pathlib import Path
 import flask
 from werkzeug.utils import secure_filename
 
+from asl_util.captions import CaptionError, CaptionTranscriber, captions_key, parse_lines
 from asl_util.demo import DemoTranscriber, demo_info
 from asl_util.jobs import JobFailed, JobRunner
 from asl_util.pipeline import translate_video
@@ -56,7 +58,8 @@ def warm_up(*models) -> None:
 
 
 def create_app(
-    transcriber=None, glosser=None, upload_dir: str | None = None, media=None, poses=None, frontend_dir=None
+    transcriber=None, glosser=None, upload_dir: str | None = None, media=None, poses=None, frontend_dir=None,
+    cache_dir: str | Path | None = None,
 ) -> flask.Flask:
     """Build the app. Tests pass in fake models so nothing heavy loads."""
     app = flask.Flask(__name__)
@@ -73,7 +76,7 @@ def create_app(
     uploads.mkdir(parents=True, exist_ok=True)
     # Sign videos are looked up on ASL Signbank once per sign, and turned into 2D pose
     # animations the first time each sign is needed. Both are cached on disk.
-    cache_dir = Path(os.environ.get("SIGNMEUP_CACHE_DIR", Path(tempfile.gettempdir()) / "signmeup-cache"))
+    cache_dir = Path(cache_dir or os.environ.get("SIGNMEUP_CACHE_DIR", Path(tempfile.gettempdir()) / "signmeup-cache"))
     poses = poses or PoseStore(cache_dir / "poses")
     media = media or SignMedia(GlossIndex.load(), VideoResolver(cache_dir / "signbank_videos.json"), poses)
 
@@ -213,6 +216,31 @@ def create_app(
 
         status = jobs.status(jobs.submit(process))
         return flask.jsonify({**status, "demo": demo_info()}), 202
+
+    captions_dir = cache_dir / "captions"
+
+    @app.post("/api/captions")
+    def sign_captions():
+        """Sign a chunk of a video's caption lines (from the browser extension).
+
+        Translated right away rather than as a job: a chunk is a minute or two of captions, and
+        every sign's animation is made ahead of time. Results are kept by the captions' content,
+        so the same chunk is only translated once.
+        """
+        try:
+            segments = parse_lines(flask.request.get_json(silent=True))
+        except CaptionError as exc:
+            return error(str(exc), 400)
+        saved = captions_dir / f"{captions_key(segments)}.json"
+        if saved.exists():
+            return flask.send_file(saved, mimetype="application/json")
+        result = translate_video(None, CaptionTranscriber(segments), glosser, media)
+        body = {"segments": result["segments"]}
+        captions_dir.mkdir(parents=True, exist_ok=True)
+        tmp = saved.with_suffix(f".{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps(body, separators=(",", ":")), encoding="utf-8")
+        tmp.replace(saved)
+        return flask.jsonify(body)
 
     @app.get("/api/jobs/<job_id>")
     def job_status(job_id: str):

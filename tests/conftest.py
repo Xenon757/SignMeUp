@@ -103,18 +103,19 @@ def frontend(tmp_path, transcriber, upload_dir, poses):
     (dist / "index.html").write_text('<!doctype html><div id="root"></div>')
     (dist / "assets" / "app.js").write_text("console.log('app')")
     app = create_app(transcriber=transcriber, glosser=FakeGlosser(), upload_dir=str(upload_dir),
-                     media=fake_media(poses), poses=poses, frontend_dir=dist)
+                     media=fake_media(poses), poses=poses, frontend_dir=dist, cache_dir=tmp_path / "cache")
     return app.test_client()
 
 
 @pytest.fixture
-def client(transcriber, upload_dir, poses):
+def client(tmp_path, transcriber, upload_dir, poses):
     app = create_app(
         transcriber=transcriber,
         glosser=FakeGlosser(),
         upload_dir=str(upload_dir),
         media=fake_media(poses),
         poses=poses,
+        cache_dir=tmp_path / "cache",
     )
     app.config["TESTING"] = True
     return app.test_client()
