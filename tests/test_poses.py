@@ -283,3 +283,10 @@ def test_real_handshape_change_is_kept():
     hands = [open_hand(0.4, 0.5)] * 5 + [fist(0.4, 0.5)] * 5   # opens, then closes and stays closed
     frames = [frame(wrist_y=0.5, right_hand=h) for h in hands]
     assert drop_hand_glitches(frames, 0, len(frames) - 1, 400, 200) == 0
+
+
+def test_video_urls_with_spaces_are_escaped():
+    from asl_util.poses import safe_url
+
+    assert safe_url("https://aslsignbank.com/v/CE/CENTRAL AMERICA-3178.mp4") == "https://aslsignbank.com/v/CE/CENTRAL%20AMERICA-3178.mp4"
+    assert safe_url("https://aslsignbank.com/v/HE/HELLO%20X-482.mp4") == "https://aslsignbank.com/v/HE/HELLO%20X-482.mp4"

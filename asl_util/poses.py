@@ -22,6 +22,7 @@ import logging
 import os
 import tempfile
 import threading
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
@@ -525,11 +526,20 @@ def _retrack_missing_hands(frames: List[Frame], images: list, width: int, height
                 f[hand] = pick_crop_hand(candidates, f["pose"], hand, f[other], width, height)
 
 
+def safe_url(url: str) -> str:
+    """The URL with spaces and other unsafe characters in its path escaped.
+
+    A few Signbank videos have spaces in their names ("CENTRAL AMERICA"), which urllib refuses.
+    """
+    parts = urllib.parse.urlsplit(url)
+    return urllib.parse.urlunsplit(parts._replace(path=urllib.parse.quote(parts.path, safe="/%")))
+
+
 def download(url: str, dest: Path, timeout: float = 30.0) -> None:
     """Download to a temporary name first so a half-written file is never used."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_name(dest.name + ".part")
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    request = urllib.request.Request(safe_url(url), headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=timeout) as resp, open(tmp, "wb") as out:
         while chunk := resp.read(1 << 16):
             out.write(chunk)
