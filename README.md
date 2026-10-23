@@ -17,6 +17,8 @@ An **Optimize for ASL** button slows the video down (keeping the audio's pitch) 
 
 `/demo` lets visitors try it without uploading anything: it signs "Me at the zoo", the first video on YouTube, playing it in YouTube's own embedded player (from youtube-nocookie.com) so the video is never copied. Since there is no audio file to transcribe, its transcript is written out in `asl_util/demo.py` with sentence times set by hand, so the timing is approximate. YouTube only offers fixed speeds (0.25× steps), so there Optimize for ASL picks the nearest one at or below the best speed.
 
+A Chrome extension (`extension/`, not yet in the Chrome Web Store) does the same on YouTube itself: it signs whatever video you're watching from its own English captions, with the signer in a corner of YouTube's player. See [Browser extension](#browser-extension).
+
 ## How the translation works
 ASL is not English word-for-word, so the text is parsed with [Stanza](https://stanfordnlp.github.io/stanza/) (part-of-speech tags, base word forms and dependency relations) and these rules are applied:
 
@@ -25,6 +27,8 @@ ASL is not English word-for-word, so the text is parsed with [Stanza](https://st
 - Negation is always signed ("don't know" → `NOT KNOW`, "no matter" → `NO MATTER`), and so are quantifiers like `ALL`, `SOME` and `MANY`.
 - Subject pronouns are dropped because ASL usually implies them. Question words are kept even as subjects ("Who called?" → `CALL WHO`).
 - Words keep their spoken order, since ASL's basic order is subject–verb–object like English. In a question, the question word moves to the end ("What is your name?" → `YOUR NAME WHAT`).
+
+Stanza runs with its "default_fast" English models, which leave out a character-level language model: on 44 test texts they parsed 4.6 times faster (0.71 s against 3.30 s on a Mac) and gave the same signs for 35 of them (23 of 666 words differed, some better and some worse). `SIGNMEUP_STANZA_PACKAGE=default` switches back. Sentences are also parsed in batches, which was several times faster again than one at a time.
 
 Words are only ever moved later in a sentence, never earlier. Signs appear once their word has been spoken, so moving a word earlier would make the signing wait for it. (The original version grouped words by their parse, which often put a sentence's last word first and held up the whole sentence.)
 - Names are fingerspelled letter by letter.
@@ -43,7 +47,9 @@ Words are only ever moved later in a sentence, never earlier. Signs appear once 
 | `asl_util/data/` | ASL Signbank's gloss list (rebuilt with `scripts/build_signbank_index.py`) |
 | `asl_util/pipeline.py` | Video → timestamped signs |
 | `asl_util/demo.py` | The demo's YouTube video and hand-written transcript |
+| `asl_util/captions.py` | Checks caption lines sent by the browser extension and turns them into segments to sign |
 | `frontend/` | The web page: React + TypeScript (Vite). `src/signer/` draws the figure and times the signs (with Vitest tests), `src/pages/` has the home and compare pages |
+| `extension/` | The Chrome extension for YouTube: `src/page.ts` gets the captions, `src/content.ts` draws the signer in the player (with the website's `frontend/src/signer/` code), `src/background.ts` talks to the server |
 | `static/` | Images served by Flask, including the fingerspelling handshapes |
 | `scripts/` | Rebuild the gloss list; make animations from local video files or ahead of time for common words; download the models into the Docker image |
 | `Dockerfile`, `fly.toml`, `.github/workflows/` | The production image, its Fly.io settings, and the test-and-deploy workflow |
@@ -103,6 +109,8 @@ Errors return `{"error": "..."}` with status 400 (no file), 413 (too large), 415
 
 `GET /api/sign?word=<word>` finds a word's sign the same way and makes its animation, returning `gloss`, `id`, `pose` and `page` (404 if Signbank has no sign for it, 422 if its video couldn't be animated).
 
+`POST /api/captions` with `{"lines": [{"start", "end", "text", "words"?}]}` (at most 400 lines; `words` are `{start, text}` from auto-generated captions) signs a chunk of a video's captions right away and returns `{"segments": [...]}` in the format above, one segment per caption line (or per sentence within one). Sound notes like `[Music]` are dropped. Results are kept by the captions' content, so the same chunk is only translated once; a minute of captions took about 0.65 s to sign the first time on a Mac.
+
 `POST /api/demo` starts (or returns, once made) the demo's job in the same format, plus a `demo` object with the YouTube video id, title and credit.
 
 ## Deploying
@@ -129,6 +137,26 @@ fly tokens create deploy --app <app-name>                  # add the output as t
 ```
 
 To deploy by hand instead, run `fly deploy` from the repository root.
+
+## Browser extension
+
+The extension signs YouTube videos while you watch them. The hard part for long videos is time: transcribing a two-hour video before anything plays isn't an option. So it never transcribes or analyses the whole video:
+
+- **It uses the video's own captions** (uploaded or auto-generated, English only) instead of Whisper. Auto-generated captions time each word, so signs can line up with the speech; uploaded ones are timed by line.
+- **It signs a minute at a time, starting where you are.** The server signs the minute being watched, then the extension keeps up to four minutes ahead; after a seek it starts again from the new spot. So a two-hour video starts as fast as a short one.
+- **Every sign is animated ahead of time** (`scripts/make_common_signs.py --all`), so nothing is tracked while you watch, and signed chunks are kept on the server, so a popular video is only translated once.
+
+How it fits together: `page.js` runs inside YouTube's page, where it can reach the player, and gets the English caption track (if YouTube refuses a direct request, it turns captions on so the player loads them, and catches that response). `content.js` sends the caption lines to the server in chunks through `background.js`, loads each sign's animation, and draws the signer in a box inside the player, timed by the video element itself, using the same `buildTimeline`, `drawFigure` and fingerspelling code as the website. The box hides during ads, which play in the same video element. The toolbar popup turns it on and off.
+
+To try it:
+
+```bash
+cd extension && npm install && npm run build
+```
+
+Then open `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick `extension/dist`. It uses https://signmeup.fly.dev; to use a local server instead, run `chrome.storage.local.set({ server: 'http://localhost:5002' })` in the extension's service worker console.
+
+It was tested against a stand-in for YouTube's watch page (a local page with the same player element and caption format, running the built scripts), including the fallback where the direct caption request is refused. YouTube changes its pages from time to time, so the caption step may need updating.
 
 ## Sign media and licenses
 
@@ -159,9 +187,10 @@ Other sources that were checked and not used: ASL-LEX's sign videos are © ASL-L
 ```bash
 pytest                       # Python: translation, pipeline, tracking clean-up, jobs, endpoints, demo
 (cd frontend && npm test)    # TypeScript: sign timing and frame blending
+(cd extension && npm test)   # TypeScript: reading YouTube captions and choosing which chunks to sign
 ```
 
-GitHub Actions runs both on every push to `main` and every pull request.
+GitHub Actions runs all three on every push to `main` and every pull request.
 
 The tests run offline in under a second: hand-built parses check each translation rule, and fake models check the upload endpoint, including that an uploaded filename like `../../app.py` can't write outside the upload folder.
 
@@ -192,3 +221,5 @@ This fork continues the project after the hackathon. Changes so far:
 - Added a demo page that signs "Me at the zoo" in YouTube's embedded player
 - Added a Docker image, Fly.io settings and a GitHub Actions workflow that tests pushes and pull requests and deploys `main`
 - Made uploads faster on the server: models load at start-up, and the signs for the 2,000 most common English words are animated ahead of time
+- Added a Chrome extension that signs YouTube videos from their own captions, a minute at a time from where the viewer is, with a captions endpoint that keeps each signed chunk
+- Made translation faster: sentences are parsed in batches, with Stanza's faster English models
