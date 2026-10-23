@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "SignMeUp: ASL for YouTube",
+  "version": "0.1.0",
+  "description": "Signs YouTube videos in ASL with an animated signer, from the video's own captions.",
+  "icons": { "128": "icon.png" },
+  "action": { "default_popup": "popup.html", "default_icon": { "128": "icon.png" } },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage"],
+  "host_permissions": ["https://signmeup.fly.dev/*", "http://localhost/*"],
+  "content_scripts": [
+    { "matches": ["https://www.youtube.com/*"], "js": ["page.js"], "world": "MAIN", "run_at": "document_start" },
+    { "matches": ["https://www.youtube.com/*"], "js": ["content.js"], "run_at": "document_idle" }
+  ],
+  "web_accessible_resources": [{ "resources": ["letters/*.svg"], "matches": ["https://www.youtube.com/*"] }]
+}

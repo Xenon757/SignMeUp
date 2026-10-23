@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>SignMeUp</title>
+  <style>
+    body { margin: 0; width: 280px; padding: 16px; font: 14px/1.5 system-ui, sans-serif; color: #18212f; background: #f6f4f0; }
+    h1 { margin: 0 0 4px; font-size: 16px; }
+    p { margin: 0 0 12px; color: #5f6b7a; }
+    label { display: flex; gap: 8px; align-items: center; font-weight: 600; }
+    input { width: 18px; height: 18px; accent-color: #2f6f5e; }
+    small { display: block; margin-top: 12px; color: #5f6b7a; font-size: 11px; }
+    a { color: #2f6f5e; }
+  </style>
+</head>
+<body>
+  <h1>SignMeUp</h1>
+  <p>Signs YouTube videos in ASL, from the video’s English captions.</p>
+  <label><input type="checkbox" id="enabled"> Sign YouTube videos</label>
+  <small>Signs animated from <a href="https://aslsignbank.com" target="_blank">ASL Signbank</a> videos (CC BY-NC-SA 4.0).
+    <a href="https://signmeup.fly.dev" target="_blank">signmeup.fly.dev</a></small>
+  <script src="popup.js"></script>
+</body>
+</html>
