@@ -1,5 +1,7 @@
 """Tests for matching words to ASL Signbank entries. Uses a hand-built gloss list."""
 
+import json
+
 from asl_util.signbank import (
     GlossIndex,
     SignMedia,
@@ -243,3 +245,16 @@ def test_keeps_the_video_when_no_variant_animates():
 
 def test_index_lists_every_entry_by_gloss():
     assert GlossIndex({"CATf": 1037, "CAT8": 347}).entries() == [("CAT8", 347), ("CATf", 1037)]
+
+
+def test_escaped_video_addresses_are_decoded():
+    page = '<video id="videoplayer" src="/dictionary/protected_media/glossvideo/ASL/DO/DON&#x27;T-3049.mp4"></video>'
+    assert video_url_from_page(page) == "https://aslsignbank.com/dictionary/protected_media/glossvideo/ASL/DO/DON'T-3049.mp4"
+
+
+def test_escaped_addresses_saved_by_older_versions_are_decoded(tmp_path):
+    cache = tmp_path / "videos.json"
+    cache.write_text(json.dumps({"3049": "https://aslsignbank.com/v/DON&#x27;T-3049.mp4", "1": None}))
+    resolver = VideoResolver(cache, fetch=FakePages({}))
+    assert resolver.video_url(3049) == "https://aslsignbank.com/v/DON'T-3049.mp4"
+    assert resolver.video_url(1) is None

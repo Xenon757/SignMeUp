@@ -13,6 +13,7 @@ import logging
 import re
 import threading
 import urllib.request
+from html import unescape
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence, Tuple
@@ -140,7 +141,8 @@ _VIDEO_SRC = re.compile(r'src="(/dictionary/protected_media/glossvideo/[^"]+\.mp
 def video_url_from_page(html: str) -> Optional[str]:
     """The entry's video URL, or None if the entry has no video yet."""
     match = _VIDEO_SRC.search(html)
-    return SITE + match.group(1) if match else None
+    # The address is HTML-escaped on the page ("DON&#x27;T"), and Signbank only serves the real name.
+    return SITE + unescape(match.group(1)) if match else None
 
 
 def _fetch(url: str, timeout: float = 5.0) -> str:
@@ -166,7 +168,9 @@ class VideoResolver:
         self._cache: Dict[str, Optional[str]] = {}
         if cache_file and cache_file.exists():
             try:
-                self._cache = json.loads(cache_file.read_text(encoding="utf-8"))
+                saved = json.loads(cache_file.read_text(encoding="utf-8"))
+                # Older versions saved addresses still HTML-escaped; decode them.
+                self._cache = {k: unescape(v) if v else v for k, v in saved.items()}
             except (OSError, ValueError):
                 log.warning("Ignoring unreadable Signbank cache %s", cache_file)
 
