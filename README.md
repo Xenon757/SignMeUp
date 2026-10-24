@@ -166,15 +166,19 @@ It was tested against a stand-in for YouTube's watch page (a local page with the
 | Gloss list (`asl_util/data/signbank_glosses.json`) | ASL Signbank's published gloss vocabulary (`asl.ecv`) | CC BY-NC-SA 4.0 | Gloss names, entry IDs and English translations, used to match words to entries. |
 | 2D animations (made in the cache folder, not in this repo) | Tracked with [MediaPipe](https://ai.google.dev/edge/mediapipe) from the ASL Signbank videos | CC BY-NC-SA 4.0 (adapted from the videos) | Made ahead of time for every Signbank entry with a video (or the first time a sign is needed), then served from the cache. |
 | Common words (`asl_util/data/common_words.txt`) | The 2,000 most common English words from [wordfreq](https://github.com/rspeer/wordfreq) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) | The words whose signs are animated ahead of time. |
+| Synonyms (`asl_util/data/sign_synonyms.json`) | Suggested from [WordNet](https://wordnet.princeton.edu), Princeton University, then reviewed by hand | [WordNet license](https://wordnet.princeton.edu/license-and-commercial-use) (free to use with attribution) | Word pairs only; WordNet itself isn't bundled or needed to run the app. |
 | Fingerspelling images (`static/img/fingerspelling/`) | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Sign_language_A.svg), from wpclipart.com | Public domain | Bundled unmodified. See `CREDITS.md` there. |
 
 How a word is matched: Signbank glosses are uppercase English words, and a lowercase or digit suffix marks a variant (`CATf`, `CAT8`). Signbank also lists English translations for each entry. A word is matched, best first, to:
 
 1. a gloss named after it, then its variants;
 2. a reviewed choice for common words whose sign has another name ("you" → `IX`, "my" → `POSS_1`, "already" → `FINISH`), listed in `asl_util/data/sign_choices.json`. Every choice is one of the entries Signbank lists the word under (a test checks this). They were picked by the developers, not by a fluent signer;
-3. an entry that lists the word as a translation *and* is from the same word family ("limitation" → `LIMIT`, "phone" → `MOBILE-PHONE`). Translations alone aren't trusted, because they also link loosely related or opposite signs ("ever" is listed under `NEVER`).
+3. an entry that lists the word as a translation *and* is from the same word family ("limitation" → `LIMIT`, "phone" → `MOBILE-PHONE`). Translations alone aren't trusted, because they also link loosely related or opposite signs ("ever" is listed under `NEVER`);
+4. a reviewed synonym's entries, for words with no entry or whose entries have no video ("beautiful" → `PRETTY`, "error" → `MISTAKE`, "afraid" → `SCARED`), listed in `asl_util/data/sign_synonyms.json`. `scripts/suggest_synonyms.py` suggested a synonym from [WordNet](https://wordnet.princeton.edu) for each of the 5,000 most common words without an animated sign (792 suggestions); each was checked by hand and 184 were kept, only where the synonym means the same in everyday speech. Synonyms don't chain.
 
-The first candidate (of up to four) with a video that can be animated is used. Words with no match are fingerspelled, as ASL does for words without a sign; numbers are not. Of the 1,437 distinct signed words among the 2,000 most common English words ([wordfreq](https://github.com/rspeer/wordfreq)), 75% have a Signbank match with these rules, up from 59% with gloss names alone. In the 30-second test video, 64 of 68 words are animated and the other 4 are fingerspelled.
+The first candidate (of up to four) with a video that can be animated is used. Words with no match are fingerspelled, as ASL does for words without a sign; numbers are not. Of the 1,437 distinct signed words among the 2,000 most common English words ([wordfreq](https://github.com/rspeer/wordfreq)), 75% have a Signbank match with these rules, up from 59% with gloss names alone. Counting whether a word's base form gets an animation (some entries have no video), the synonyms raised the share from 70% to 74% for the 2,000 most common words and from 49% to 55% for the 5,000 most common. In the 30-second test video, 64 of 68 words are animated and the other 4 are fingerspelled.
+
+Interjections like "oh", "um" and "hey" are signed when Signbank has a sign ("hello", "please", "wow"), and otherwise only highlighted in the caption rather than fingerspelled.
 
 The video's address isn't part of the gloss list, so the server reads the entry's page the first time a sign is needed and caches the result.
 
@@ -223,3 +227,4 @@ This fork continues the project after the hackathon. Changes so far:
 - Made uploads faster on the server: models load at start-up, and the signs for the 2,000 most common English words are animated ahead of time
 - Added a Chrome extension that signs YouTube videos from their own captions, a minute at a time from where the viewer is, with a captions endpoint that keeps each signed chunk
 - Made translation faster: sentences are parsed in batches, with Stanza's faster English models
+- Fingerspelled fewer words: reviewed synonyms for common words without an animated sign, and interjections without a sign are no longer spelled out
