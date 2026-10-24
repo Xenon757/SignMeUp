@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 GLOSS_FILE = Path(__file__).resolve().parent / "data" / "signbank_glosses.json"
 CHOICES_FILE = Path(__file__).resolve().parent / "data" / "sign_choices.json"
+SYNONYMS_FILE = Path(__file__).resolve().parent / "data" / "sign_synonyms.json"
 SITE = "https://aslsignbank.com"
 USER_AGENT = "SignMeUp (+https://github.com/Xenon757/SignMeUp)"
 
@@ -75,6 +76,8 @@ class GlossIndex:
       3. an entry that lists the word as a translation and whose name is from
          the same word family ("limitation" -> LIMIT, "phone" -> MOBILE-PHONE),
          most specific entries (fewest translations) first.
+      4. a reviewed synonym's entries ("beautiful" -> PRETTY; see data/sign_synonyms.json),
+         for words with no entry or whose entries have no video.
     Translations alone are not trusted: they also link loosely related signs
     ("ever" is listed under NEVER), so a word with none of the above gets no sign.
     """
@@ -84,6 +87,7 @@ class GlossIndex:
         glosses: Dict[str, int],
         translations: Optional[Dict[str, List[str]]] = None,
         choices: Optional[Dict[str, str]] = None,
+        synonyms: Optional[Dict[str, str]] = None,
     ):
         self._exact: Dict[str, int] = dict(glosses)
         self._by_root: Dict[str, List[Tuple[str, int]]] = {}
@@ -95,12 +99,16 @@ class GlossIndex:
             for w in words:
                 self._by_translation.setdefault(w, []).append(gloss)
         self._choices = {w.lower(): g for w, g in (choices or {}).items()}
+        self._synonyms = {w.lower(): s.lower() for w, s in (synonyms or {}).items()}
 
     @classmethod
-    def load(cls, path: Path = GLOSS_FILE, choices_path: Path = CHOICES_FILE) -> "GlossIndex":
+    def load(
+        cls, path: Path = GLOSS_FILE, choices_path: Path = CHOICES_FILE, synonyms_path: Path = SYNONYMS_FILE
+    ) -> "GlossIndex":
         data = json.loads(path.read_text(encoding="utf-8"))
         choices = json.loads(choices_path.read_text(encoding="utf-8"))["choices"] if choices_path.exists() else {}
-        return cls(data["glosses"], data.get("translations"), choices)
+        synonyms = json.loads(synonyms_path.read_text(encoding="utf-8"))["synonyms"] if synonyms_path.exists() else {}
+        return cls(data["glosses"], data.get("translations"), choices, synonyms)
 
     def _named(self, key: str) -> List[Tuple[str, int]]:
         found: List[Tuple[str, int]] = []
@@ -119,6 +127,14 @@ class GlossIndex:
     def candidates(self, word: str) -> List[Tuple[str, int]]:
         """Entries for a word, best first. Multi-word glosses use hyphens ("ice cream" -> ICE-CREAM)."""
         word = word.strip().lower()
+        found = self._own_candidates(word)
+        # Last, a reviewed synonym's signs ("beautiful" -> PRETTY): for words with no entry, or
+        # whose entries have no video. Only one step, so synonyms never chain.
+        if word in self._synonyms:
+            found += [c for c in self._own_candidates(self._synonyms[word]) if c not in found]
+        return found
+
+    def _own_candidates(self, word: str) -> List[Tuple[str, int]]:
         if not word:
             return []
         found = self._named(word.upper().replace(" ", "-"))

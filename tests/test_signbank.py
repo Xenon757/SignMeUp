@@ -3,6 +3,7 @@
 import json
 
 from asl_util.signbank import (
+    SYNONYMS_FILE,
     GlossIndex,
     SignMedia,
     VideoResolver,
@@ -265,3 +266,17 @@ def test_interjections_get_their_sign_but_are_never_fingerspelled():
     assert finder.for_signs([Sign("oh", "oh", "interjection")]) == [None]
     [cat] = finder.for_signs([Sign("cat", "cat", "interjection")])
     assert cat["type"] == "video"
+
+
+def test_a_reviewed_synonym_comes_after_the_words_own_entries():
+    index = GlossIndex({"BEAUTIFUL": 10, "PRETTY": 20, "BIG": 30}, synonyms={"beautiful": "pretty", "huge": "big", "giant": "huge"})
+    assert index.candidates("beautiful") == [("BEAUTIFUL", 10), ("PRETTY", 20)]
+    assert index.candidates("huge") == [("BIG", 30)]
+    assert index.candidates("giant") == []  # synonyms don't chain
+
+
+def test_every_reviewed_synonym_has_a_signbank_entry():
+    index = GlossIndex.load()
+    synonyms = json.loads(SYNONYMS_FILE.read_text())["synonyms"]
+    missing = [f"{word} -> {syn}" for word, syn in synonyms.items() if not index.candidates(syn)]
+    assert not missing, missing
