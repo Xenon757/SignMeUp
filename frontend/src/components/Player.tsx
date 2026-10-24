@@ -156,7 +156,7 @@ export function Player({ title, onReset, resetLabel = 'New video', source, note,
         // Fade in over the first and out over the last SPELL_FADE seconds (real time).
         const fade = SPELL_FADE * clock.rate();
         const appear = Math.min((t - clip.start) / fade, (clip.start + clip.length - t) / fade, 1);
-        drawSpelling(ctx, clip.label, (t - clip.start) / clip.length, appear);
+        drawSpelling(ctx, clip.label, appear);
       }
       const latest = latestClip(timeline, t);
       const caption = captionAt(segments, t);

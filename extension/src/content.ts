@@ -198,7 +198,7 @@ function tick() {
   if (clip?.kind === 'spell') {
     const fade = SPELL_FADE * v.playbackRate;
     const appear = Math.min((t - clip.start) / fade, (clip.start + clip.length - t) / fade, 1);
-    drawSpelling(ctx, clip.label, (t - clip.start) / clip.length, appear);
+    drawSpelling(ctx, clip.label, appear);
   }
   const latest = latestClip(timeline, t);
   const text = latest?.label ?? '';

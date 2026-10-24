@@ -208,7 +208,6 @@ function tintedLetter(ch: string): HTMLCanvasElement | null {
   return (tintedLetters[ch] = c);
 }
 
-const ACCENT = '#2f6f5e';
 const easeOut = (k: number) => 1 - (1 - k) ** 3;
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -222,19 +221,16 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 }
 
 /**
- * A fingerspelled word, drawn over the figure. The letters' handshapes sit on skin-coloured
- * cards in the figure's style, all visible at once so the word can be read, and the letter
- * being spelled is raised and outlined, moving left to right through the word. `progress`
- * (0..1) is how far through the word we are; `appear` (0..1) fades and slides the row in and
- * out, and dims the figure behind it, so it doesn't pop on and off.
+ * A fingerspelled word, drawn over the figure: the letters' handshapes on skin-coloured cards in
+ * the figure's style, all shown at once so the word is read at a glance. `appear` (0..1) fades
+ * and slides the row in and out, and dims the figure behind it, so it doesn't pop on and off.
  */
-export function drawSpelling(ctx: CanvasRenderingContext2D, word: string, progress: number, appear: number) {
+export function drawSpelling(ctx: CanvasRenderingContext2D, word: string, appear: number) {
   const { width: W, height: H } = ctx.canvas;
   const letters = word.toLowerCase().replace(/[^a-z]/g, '');
   if (!letters || appear <= 0) return;
   const k = easeOut(Math.min(1, appear));
   const n = letters.length;
-  const current = Math.min(n - 1, Math.floor(progress * n));
 
   // Soften the figure behind the letters rather than covering it.
   ctx.save();
@@ -245,35 +241,28 @@ export function drawSpelling(ctx: CanvasRenderingContext2D, word: string, progre
 
   // Cards in one row, as large as fits; portrait like most handshapes.
   const gap = W * 0.018;
-  const cardW = Math.min(W * 0.22, (W * 0.92 - gap * (n - 1)) / n);
-  const cardH = cardW * 1.25;
-  const rowW = cardW * n + gap * (n - 1);
-  const x0 = (W - rowW) / 2;
+  const w = Math.min(W * 0.22, (W * 0.92 - gap * (n - 1)) / n);
+  const h = w * 1.25;
+  const x0 = (W - (w * n + gap * (n - 1))) / 2;
   // Over the chest, below the face; slides up as it appears.
-  const y0 = Math.min(H * 0.64 - cardH / 2, H * 0.97 - cardH) + (1 - k) * H * 0.04;
+  const y = Math.min(H * 0.64 - h / 2, H * 0.97 - h) + (1 - k) * H * 0.04;
   const s = W / 900;
 
   ctx.save();
   ctx.globalAlpha = k;
   [...letters].forEach((ch, i) => {
-    const active = i === current;
-    const lift = active ? cardH * 0.06 : 0;
-    const grow = active ? 1.08 : 1;
-    const w = cardW * grow, h = cardH * grow;
-    const x = x0 + i * (cardW + gap) - (w - cardW) / 2;
-    const y = y0 - lift - (h - cardH) / 2;
-
+    const x = x0 + i * (w + gap);
     ctx.save();
     ctx.shadowColor = 'rgba(40, 22, 10, 0.25)';
-    ctx.shadowBlur = (active ? 16 : 8) * s;
-    ctx.shadowOffsetY = (active ? 6 : 3) * s;
+    ctx.shadowBlur = 8 * s;
+    ctx.shadowOffsetY = 3 * s;
     roundRect(ctx, x, y, w, h, Math.min(w, h) * 0.14);
-    ctx.fillStyle = active ? '#fff7ee' : COLORS.palm;
+    ctx.fillStyle = COLORS.palm;
     ctx.fill();
     ctx.restore();
     roundRect(ctx, x, y, w, h, Math.min(w, h) * 0.14);
-    ctx.lineWidth = (active ? 5 : 2) * s;
-    ctx.strokeStyle = active ? ACCENT : 'rgba(107, 63, 34, 0.35)';
+    ctx.lineWidth = 2 * s;
+    ctx.strokeStyle = 'rgba(107, 63, 34, 0.35)';
     ctx.stroke();
 
     // The handshape, fitted inside the card without stretching, above its letter.
@@ -283,11 +272,9 @@ export function drawSpelling(ctx: CanvasRenderingContext2D, word: string, progre
     if (art) {
       const fit = Math.min(boxW / art.width, boxH / art.height);
       const aw = art.width * fit, ah = art.height * fit;
-      ctx.globalAlpha = k * (active ? 1 : 0.75);
       ctx.drawImage(art, x + (w - aw) / 2, y + pad + (boxH - ah) / 2, aw, ah);
-      ctx.globalAlpha = k;
     }
-    ctx.fillStyle = active ? ACCENT : COLORS.handOutline;
+    ctx.fillStyle = COLORS.handOutline;
     ctx.font = `700 ${Math.round(h * 0.17)}px Poppins, system-ui, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(ch.toUpperCase(), x + w / 2, y + h * 0.84);
