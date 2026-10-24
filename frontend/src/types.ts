@@ -30,7 +30,7 @@ export type Media =
 export interface Sign {
   text: string; // the English word
   gloss: string; // what is signed
-  kind: 'sign' | 'fingerspell' | 'number';
+  kind: 'sign' | 'fingerspell' | 'number' | 'interjection'; // interjections without a sign are only highlighted
   start: number; // when the English word was said, in seconds
   start_char: number | null; // where the word starts in the sentence text
   media?: Media | null;

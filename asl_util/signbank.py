@@ -261,7 +261,7 @@ class SignMedia:
     @staticmethod
     def _spelling_for(sign: Sign) -> Optional[dict]:
         """Fingerspell a word that has no sign video."""
-        if sign.kind == "number" or not sign.gloss.isalpha() or not sign.gloss.isascii():
+        if sign.kind in ("number", "interjection") or not sign.gloss.isalpha() or not sign.gloss.isascii():
             return None
         letters = sign.gloss.lower()
         return {

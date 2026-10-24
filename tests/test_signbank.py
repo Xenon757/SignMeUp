@@ -258,3 +258,10 @@ def test_escaped_addresses_saved_by_older_versions_are_decoded(tmp_path):
     resolver = VideoResolver(cache, fetch=FakePages({}))
     assert resolver.video_url(3049) == "https://aslsignbank.com/v/DON'T-3049.mp4"
     assert resolver.video_url(1) is None
+
+
+def test_interjections_get_their_sign_but_are_never_fingerspelled():
+    finder = media({entry_page_url(1037): ENTRY_PAGE})
+    assert finder.for_signs([Sign("oh", "oh", "interjection")]) == [None]
+    [cat] = finder.for_signs([Sign("cat", "cat", "interjection")])
+    assert cat["type"] == "video"

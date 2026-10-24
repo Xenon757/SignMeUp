@@ -39,7 +39,7 @@ class Sign:
 
     text: str         # the English word it came from
     gloss: str        # what to sign (a base word, a letter, or a number word)
-    kind: str         # "sign", "fingerspell" or "number"
+    kind: str         # "sign", "fingerspell", "number" or "interjection"
     # Where the English word starts in the input text, used to find when it was spoken.
     # Not part of a sign's identity, so it's left out of comparisons.
     start_char: Optional[int] = field(default=None, compare=False)
@@ -50,6 +50,9 @@ DROPPED_WORDS = {
     ("is", "be"), ("are", "be"), ("the", "the"), ("of", "of"), ("by", "by"),
     ("a", "a"), ("an", "a"), (",", ","), (";", ";"), (":", ":"),
 }
+
+# Other spellings of a word, signed as the usual one.
+SPELLINGS = {"ok": "okay"}
 
 # Parts of speech that ASL drops: auxiliaries, determiners, prepositions,
 # plus symbols, particles and unknown tokens.
@@ -112,6 +115,7 @@ def fingerspell(text: str, start_char: Optional[int] = None) -> List[Sign]:
 def word_to_signs(word: Word) -> List[Sign]:
     """Apply the ASL rules to a single word. Returns [] if it isn't signed."""
     text, lemma = word.text.lower(), word.lemma.lower()
+    lemma = SPELLINGS.get(lemma, lemma)
 
     if lemma in NEGATIONS:
         return [Sign(text, "not" if lemma == "not" else lemma, "sign", word.start_char)]
@@ -135,6 +139,10 @@ def word_to_signs(word: Word) -> List[Sign]:
     # lemmatizer mix-ups between verbs whose forms collide ("bore" -> "bear").
     if word.upos == "VERB" and word.xpos in BASE_FORM_VERB_TAGS and text.isalpha():
         lemma = text
+    # Interjections ("oh", "um") are signed when Signbank has a sign ("hello", "please"), but
+    # not fingerspelled otherwise: spelling out O-H says something the speaker didn't.
+    if word.upos == "INTJ":
+        return [Sign(text, lemma, "interjection", word.start_char)]
     return [Sign(text, lemma, "sign", word.start_char)]
 
 

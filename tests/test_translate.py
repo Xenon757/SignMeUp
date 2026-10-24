@@ -195,3 +195,13 @@ def test_base_form_verb_keeps_its_own_form():
 def test_past_tense_verb_is_still_lemmatized():
     ran = Word(1, 0, "ran", "run", "VERB", "root", xpos="VBD")
     assert sentence_to_signs([ran])[0].gloss == "run"
+
+
+def test_interjections_are_marked_so_they_are_not_fingerspelled():
+    signs = sentence_to_signs([w(1, 2, "Oh", "oh", "INTJ", "discourse"), w(2, 0, "wow", "wow", "INTJ", "root")])
+    assert [(s.gloss, s.kind) for s in signs] == [("oh", "interjection"), ("wow", "interjection")]
+
+
+def test_ok_is_signed_as_okay():
+    [sign] = sentence_to_signs([w(1, 0, "OK", "ok", "INTJ", "root")])
+    assert sign.gloss == "okay"
