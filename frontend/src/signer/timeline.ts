@@ -20,8 +20,8 @@ export const EASE = 0.3; // ...then ease to or from the resting pose over this l
 // spelled word stays up for SPELL_TIME plus a little per letter. In fast stretches it is shortened
 // along with the signs around it (by speed / BASE_SPEED, so at most to half), instead of holding
 // up every sign after it.
-export const SPELL_TIME = 0.8;
-export const SPELL_TIME_PER_LETTER = 0.05;
+export const SPELL_TIME = 0.5;
+export const SPELL_TIME_PER_LETTER = 0.03;
 export const UNSIGNED_WORD_TIME = 0.45; // a word with no sign at all: only highlighted in the sentence
 // "Optimize for ASL": slow the media until most sentences fit at BASE_SPEED, but not below MIN_RATE.
 export const OPTIMIZE_SHARE = 0.9;
