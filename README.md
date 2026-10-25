@@ -154,7 +154,7 @@ To try it:
 cd extension && npm install && npm run build
 ```
 
-Then open `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick `extension/dist`. It uses https://signmeup.fly.dev; to use a local server instead, run `chrome.storage.local.set({ server: 'http://localhost:5002' })` in the extension's service worker console.
+Then open `chrome://extensions`, turn on Developer mode, choose **Load unpacked** and pick `extension/dist`. It uses https://signmeup.fly.dev; to use a local server instead, build with `npm run build:dev` (the store build can't reach localhost) and run `chrome.storage.local.set({ server: 'http://localhost:5002' })` in the extension's service worker console. `npm run package` makes `extension/signmeup-extension.zip` for the Chrome Web Store.
 
 It was tested against a stand-in for YouTube's watch page (a local page with the same player element and caption format, running the built scripts), including the fallback where the direct caption request is refused. YouTube changes its pages from time to time, so the caption step may need updating.
 

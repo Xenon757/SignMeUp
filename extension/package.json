@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && node build.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:dev": "tsc --noEmit && node build.mjs --dev",
+    "package": "npm run build && cd dist && rm -f ../signmeup-extension.zip && zip -qr ../signmeup-extension.zip . && echo 'Made extension/signmeup-extension.zip'"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.4",

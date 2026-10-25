@@ -3,7 +3,8 @@
 
 export const DEFAULT_SERVER = 'https://signmeup.fly.dev';
 
-// For trying a local server: chrome.storage.local.set({ server: 'http://localhost:5002' }).
+// For trying a local server: build with `npm run build:dev` (which allows localhost), then run
+// chrome.storage.local.set({ server: 'http://localhost:5002' }) in the service worker console.
 async function server(): Promise<string> {
   const { server } = await chrome.storage.local.get('server');
   return typeof server === 'string' && server ? server : DEFAULT_SERVER;
