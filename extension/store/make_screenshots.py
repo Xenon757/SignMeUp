@@ -1,7 +1,8 @@
 """Turn screenshots into Chrome Web Store screenshots: 1280x800 JPEGs with no transparency.
 
-Each image is cropped around its centre to the store's 16:10 shape, then resized. Crop your
-screenshots close to the video player first if you want the signer to be large.
+Each whole image is scaled to fit inside 1280x800, and any space left over is filled with dark
+grey, so nothing (like the signer box at the edge of the player) is cut off. Screenshots close to
+16:10 fill the frame best.
 
 Usage (from the repository root, with the project's virtualenv, which has Pillow):
     python extension/store/make_screenshots.py ~/Desktop/shot1.png ~/Desktop/shot2.png ...
@@ -23,15 +24,13 @@ def main() -> None:
     out_dir = Path(__file__).resolve().parent
     for n, path in enumerate(sys.argv[1:6], start=1):
         image = Image.open(path).convert("RGB")
-        # Crop to 16:10 around the centre: as wide as possible, or as tall as possible.
-        if image.width / image.height > WIDTH / HEIGHT:
-            w = round(image.height * WIDTH / HEIGHT)
-            image = image.crop(((image.width - w) // 2, 0, (image.width + w) // 2, image.height))
-        else:
-            h = round(image.width * HEIGHT / WIDTH)
-            image = image.crop((0, (image.height - h) // 2, image.width, (image.height + h) // 2))
+        # Fit the whole image inside the frame, centred on a dark background.
+        scale = min(WIDTH / image.width, HEIGHT / image.height)
+        image = image.resize((round(image.width * scale), round(image.height * scale)), Image.LANCZOS)
+        frame = Image.new("RGB", (WIDTH, HEIGHT), (24, 24, 24))
+        frame.paste(image, ((WIDTH - image.width) // 2, (HEIGHT - image.height) // 2))
         out = out_dir / f"screenshot-{n}.jpg"
-        image.resize((WIDTH, HEIGHT), Image.LANCZOS).save(out, quality=92)
+        frame.save(out, quality=92)
         print(f"{path} -> {out}")
 
 
