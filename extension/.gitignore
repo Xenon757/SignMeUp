@@ -1,3 +1,6 @@
 node_modules
 dist
 *.zip
+
+# Screenshots are made from personal screenshots; keep them out of git.
+store/screenshot-*.jpg
