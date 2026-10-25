@@ -1,6 +1,7 @@
 import { ComparePage } from './pages/ComparePage';
 import { DemoPage } from './pages/DemoPage';
 import { HomePage } from './pages/HomePage';
+import { PrivacyPage } from './pages/PrivacyPage';
 
 const REPO = 'https://github.com/Xenon757/SignMeUp';
 
@@ -9,6 +10,7 @@ export default function App() {
   const path = window.location.pathname;
   const comparing = path.startsWith('/compare');
   const demo = path.startsWith('/demo');
+  const privacy = path.startsWith('/privacy');
   return (
     <div className="app">
       <header className="site-header">
@@ -23,7 +25,7 @@ export default function App() {
         </nav>
       </header>
 
-      {comparing ? <ComparePage /> : demo ? <DemoPage /> : <HomePage />}
+      {comparing ? <ComparePage /> : demo ? <DemoPage /> : privacy ? <PrivacyPage /> : <HomePage />}
 
       <footer className="site-footer">
         <p>
@@ -33,6 +35,7 @@ export default function App() {
         </p>
         <p>
           Originally built at Hello World 2025 by the SignMeUp team (<a href="https://github.com/ShlokShar/SignMeUp" target="_blank" rel="noopener">original repo</a>).
+          {' '}<a href="/privacy">Privacy policy</a>
         </p>
       </footer>
     </div>

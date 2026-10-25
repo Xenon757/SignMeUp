@@ -105,6 +105,7 @@ def create_app(
     @app.get("/")
     @app.get("/demo")
     @app.get("/compare")
+    @app.get("/privacy")
     def page():
         # The React app handles both pages; it picks one from the URL.
         if not (frontend / "index.html").exists():

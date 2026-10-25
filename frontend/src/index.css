@@ -300,3 +300,10 @@ button.toggle[aria-pressed='true'] { background: var(--accent); color: var(--acc
 .word-search input:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .search-status { margin: 8px 0 0; min-height: 1.4em; }
 .search-status.error { color: var(--danger); }
+
+/* Text pages (privacy policy) */
+.prose { max-width: 720px; }
+.prose h1 { font-size: 1.75rem; margin: 0 0 6px; }
+.prose h2 { font-size: 1.125rem; margin: 28px 0 8px; }
+.prose ul { padding-left: 1.2em; }
+.prose li { margin: 8px 0; }

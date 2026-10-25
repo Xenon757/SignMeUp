@@ -243,3 +243,7 @@ def test_server_warms_up_models_in_the_background_when_asked(monkeypatch, upload
     transcriber, glosser = WarmUpModel(), WarmUpModel()
     create_app(transcriber=transcriber, glosser=glosser, upload_dir=str(upload_dir), media=fake_media(poses), poses=poses)
     assert transcriber.loaded and glosser.loaded
+
+
+def test_privacy_page_is_served(frontend):
+    assert frontend.get("/privacy").status_code == 200
