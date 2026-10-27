@@ -17,7 +17,7 @@ An **Optimize for ASL** button slows the video down (keeping the audio's pitch) 
 
 `/demo` lets visitors try it without uploading anything: it signs "Me at the zoo", the first video on YouTube, playing it in YouTube's own embedded player (from youtube-nocookie.com) so the video is never copied. Since there is no audio file to transcribe, its transcript is written out in `asl_util/demo.py` with sentence times set by hand, so the timing is approximate. YouTube only offers fixed speeds (0.25× steps), so there Optimize for ASL picks the nearest one at or below the best speed.
 
-A Chrome extension (`extension/`, not yet in the Chrome Web Store) does the same on YouTube itself: it signs whatever video you're watching from its own English captions, with the signer in a corner of YouTube's player. See [Browser extension](#browser-extension).
+A Chrome extension (`extension/`, [on the Chrome Web Store](https://chromewebstore.google.com/detail/signmeup-asl-for-youtube/jehdimfnbbfahecpbdlchaciioibpkkp)) does the same on YouTube itself: it signs whatever video you're watching from its own English captions, with the signer in a corner of YouTube's player. See [Browser extension](#browser-extension).
 
 ## How the translation works
 ASL is not English word-for-word, so the text is parsed with [Stanza](https://stanfordnlp.github.io/stanza/) (part-of-speech tags, base word forms and dependency relations) and these rules are applied:
@@ -148,7 +148,7 @@ The extension signs YouTube videos while you watch them. The hard part for long 
 
 How it fits together: `page.js` runs inside YouTube's page, where it can reach the player, and gets the English caption track (if YouTube refuses a direct request, it turns captions on so the player loads them, and catches that response). `content.js` sends the caption lines to the server in chunks through `background.js`, loads each sign's animation, and draws the signer in a box inside the player, timed by the video element itself, using the same `buildTimeline`, `drawFigure` and fingerspelling code as the website. The box hides during ads, which play in the same video element. The toolbar popup turns it on and off.
 
-To try it:
+Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/signmeup-asl-for-youtube/jehdimfnbbfahecpbdlchaciioibpkkp), or build it yourself:
 
 ```bash
 cd extension && npm install && npm run build
@@ -225,6 +225,6 @@ This fork continues the project after the hackathon. Changes so far:
 - Added a demo page that signs "Me at the zoo" in YouTube's embedded player
 - Added a Docker image, Fly.io settings and a GitHub Actions workflow that tests pushes and pull requests and deploys `main`
 - Made uploads faster on the server: models load at start-up, and the signs for the 2,000 most common English words are animated ahead of time
-- Added a Chrome extension that signs YouTube videos from their own captions, a minute at a time from where the viewer is, with a captions endpoint that keeps each signed chunk
+- Added a Chrome extension, published on the Chrome Web Store, that signs YouTube videos from their own captions, a minute at a time from where the viewer is, with a captions endpoint that keeps each signed chunk
 - Made translation faster: sentences are parsed in batches, with Stanza's faster English models
 - Fingerspelled fewer words: reviewed synonyms for common words without an animated sign, and interjections without a sign are no longer spelled out
