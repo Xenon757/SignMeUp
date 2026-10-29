@@ -1,9 +1,8 @@
+import { EXTENSION, REPO } from './links';
 import { ComparePage } from './pages/ComparePage';
 import { DemoPage } from './pages/DemoPage';
 import { HomePage } from './pages/HomePage';
 import { PrivacyPage } from './pages/PrivacyPage';
-
-const REPO = 'https://github.com/Xenon757/SignMeUp';
 
 /** Pages, picked by URL; Flask serves this app for each. */
 export default function App() {
@@ -21,6 +20,7 @@ export default function App() {
         <nav>
           <a href="/demo" aria-current={demo ? 'page' : undefined}>Demo</a>
           <a href="/compare" aria-current={comparing ? 'page' : undefined}>Compare signs</a>
+          <a className="nav-extension" href={EXTENSION} target="_blank" rel="noopener">Chrome extension</a>
           <a href={REPO} target="_blank" rel="noopener">GitHub</a>
         </nav>
       </header>

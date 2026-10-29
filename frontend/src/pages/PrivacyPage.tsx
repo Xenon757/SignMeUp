@@ -1,4 +1,4 @@
-const REPO = 'https://github.com/Xenon757/SignMeUp';
+import { REPO } from '../links';
 
 /** What the website and the browser extension do with data. Keep in step with the code. */
 export function PrivacyPage() {

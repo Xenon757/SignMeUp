@@ -1,3 +1,4 @@
+import { EXTENSION } from '../links';
 import { SignPreview } from './SignPreview';
 import { Upload } from './Upload';
 
@@ -23,6 +24,13 @@ export function Landing({ onFile }: { onFile: (file: File) => void }) {
           <Upload onFile={onFile} />
           <p className="muted small">Video (MP4, MOV, WebM) or audio (MP3, WAV, M4A), up to 200 MB. Nothing is kept after processing.</p>
           <a className="demo-link" href="/demo">No video handy? Watch the demo: the first YouTube video, signed <span aria-hidden="true">→</span></a>
+          <div className="extension-cta">
+            <div>
+              <p className="extension-title">Watching on YouTube?</p>
+              <p className="muted small">The free Chrome extension signs YouTube videos as you watch, from their captions.</p>
+            </div>
+            <a className="button-link" href={EXTENSION} target="_blank" rel="noopener">Add to Chrome</a>
+          </div>
         </div>
         <div className="hero-art">
           <SignPreview />

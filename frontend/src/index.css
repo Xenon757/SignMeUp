@@ -307,3 +307,19 @@ button.toggle[aria-pressed='true'] { background: var(--accent); color: var(--acc
 .prose h2 { font-size: 1.125rem; margin: 28px 0 8px; }
 .prose ul { padding-left: 1.2em; }
 .prose li { margin: 8px 0; }
+
+/* "Add to Chrome" box on the landing page */
+.extension-cta {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px;
+  margin-top: 24px; padding: 16px 20px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--card); box-shadow: var(--shadow);
+}
+.extension-cta .extension-title { margin: 0 0 2px; font-weight: 600; }
+.extension-cta .muted.small { margin: 0; }
+.button-link {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 8px 20px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); font-weight: 600; text-decoration: none; white-space: nowrap;
+}
+.button-link:hover { background: var(--accent-strong); }
+/* Chrome extensions can't be installed on phones, and the header has no room for it there. */
+@media (max-width: 640px) { .site-header .nav-extension { display: none; } }
